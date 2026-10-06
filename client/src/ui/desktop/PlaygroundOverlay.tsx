@@ -139,18 +139,18 @@ export function PlaygroundOverlay() {
     <div className="pg-overlay">
       <div className="pg-overlay__left">
         <ObjectPanel />
+        <div className="pg-overlay__tools">
+          <button className="btn btn--tool" onClick={() => playgroundAction({ action: "RESET_VIEW" })}>
+            <Icon.Reset width={16} height={16} /> RESET VIEW
+          </button>
+          <button className="btn btn--tool" onClick={() => playgroundAction({ action: "CLEAR_SCENE" })}>
+            <Icon.Trash width={16} height={16} /> CLEAR
+          </button>
+        </div>
       </div>
       <div className="pg-overlay__right">
         <VisionCard />
         <LocationPanel />
-      </div>
-      <div className="pg-overlay__tools">
-        <button className="btn btn--tool" onClick={() => playgroundAction({ action: "RESET_VIEW" })}>
-          <Icon.Reset width={16} height={16} /> RESET VIEW
-        </button>
-        <button className="btn btn--tool" onClick={() => playgroundAction({ action: "CLEAR_SCENE" })}>
-          <Icon.Trash width={16} height={16} /> CLEAR
-        </button>
       </div>
       <Shelf />
     </div>

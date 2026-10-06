@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pub = path.join(root, "client", "public");
 
+const SSS = "https://www.solarsystemscope.com/textures/download";
 const THREE_TEX = "https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/textures/planets";
 const downloads = [
   {
@@ -24,6 +25,9 @@ const downloads = [
   { url: `${THREE_TEX}/earth_lights_2048.png`, out: "textures/earth_lights.png" },
   { url: `${THREE_TEX}/earth_clouds_1024.png`, out: "textures/earth_clouds.png" },
   { url: `${THREE_TEX}/moon_1024.jpg`, out: "textures/moon.jpg" },
+  // Planet textures © Solar System Scope (solarsystemscope.com/textures), CC BY 4.0
+  ...["mars", "saturn", "sun", "moon", "jupiter", "mercury", "venus_atmosphere", "uranus", "neptune", "stars_milky_way"].map((n) => ({ url: `${SSS}/2k_${n}.jpg`, out: `textures/2k_${n}.jpg` })),
+  { url: `${SSS}/2k_saturn_ring_alpha.png`, out: "textures/2k_saturn_ring_alpha.png" },
   {
     url: "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson",
     out: "geo/countries.geojson",

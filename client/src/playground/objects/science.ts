@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { BuiltObject } from "./types";
-import { HOLO_CYAN, edgeLines, glowSprite, holoMaterial } from "../holo";
+import { HOLO_CYAN, glowSprite, holoMaterial } from "../holo";
 
 export function buildAtom(): BuiltObject {
   const group = new THREE.Group();
@@ -122,83 +122,202 @@ export function buildDna(): BuiltObject {
 }
 
 /** Classic heart outline (two cubic lobes), extruded with a soft bevel. */
-function heartGeometry(): THREE.ExtrudeGeometry {
-  const s = new THREE.Shape();
-  s.moveTo(0, -0.95);
-  s.bezierCurveTo(-0.35, -0.6, -1.05, -0.25, -1.0, 0.25);
-  s.bezierCurveTo(-0.95, 0.75, -0.3, 0.95, 0, 0.5);
-  s.bezierCurveTo(0.3, 0.95, 0.95, 0.75, 1.0, 0.25);
-  s.bezierCurveTo(1.05, -0.25, 0.35, -0.6, 0, -0.95);
-  const geo = new THREE.ExtrudeGeometry(s, { depth: 0.35, bevelEnabled: true, bevelThickness: 0.28, bevelSize: 0.22, bevelSegments: 10, curveSegments: 48 });
-  geo.center();
-  return geo;
+// ─── Organic modelling helpers ───
+
+function hash3(x: number, y: number, z: number): number {
+  const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
+  return s - Math.floor(s);
 }
 
+/** Smooth 3D value noise in [0,1]. */
+function noise3(x: number, y: number, z: number): number {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = x - xi, yf = y - yi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+  const l = (a: number, b: number, t: number) => a + (b - a) * t;
+  const c = (dx: number, dy: number, dz: number) => hash3(xi + dx, yi + dy, zi + dz);
+  return l(l(l(c(0, 0, 0), c(1, 0, 0), u), l(c(0, 1, 0), c(1, 1, 0), u), v), l(l(c(0, 0, 1), c(1, 0, 1), u), l(c(0, 1, 1), c(1, 1, 1), u), v), w);
+}
+
+/** Ridged multifractal: sharp crests (gyri) and narrow valleys (sulci). */
+function ridged(x: number, y: number, z: number): number {
+  let sum = 0, amp = 0.6, freq = 1;
+  for (let o = 0; o < 3; o++) {
+    const n = 1 - Math.abs(noise3(x * freq, y * freq, z * freq) * 2 - 1);
+    sum += n * n * amp;
+    amp *= 0.45;
+    freq *= 2.1;
+  }
+  return sum;
+}
+
+const smooth = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+const tissue = (color: number, opts: Partial<THREE.MeshPhysicalMaterialParameters> = {}) =>
+  new THREE.MeshPhysicalMaterial({ color, roughness: 0.42, metalness: 0, clearcoat: 0.75, clearcoatRoughness: 0.22, sheen: 0.5, sheenColor: new THREE.Color(0xff9a9a), envMapIntensity: 0.8, ...opts });
+
+function vessel(points: [number, number, number][], radius: number, mat: THREE.Material, taper = 1) {
+  const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)));
+  const geo = new THREE.TubeGeometry(curve, 64, radius, 16, false);
+  if (taper !== 1) {
+    // Taper the tube toward its end.
+    const pos = geo.attributes.position;
+    const segs = 65;
+    const ring = 17;
+    for (let i = 0; i < segs; i++) {
+      const p = curve.getPointAt(i / (segs - 1));
+      const f = 1 + (taper - 1) * (i / (segs - 1));
+      for (let j = 0; j < ring; j++) {
+        const k = i * ring + j;
+        if (k >= pos.count) break;
+        pos.setXYZ(k, p.x + (pos.getX(k) - p.x) * f, p.y + (pos.getY(k) - p.y) * f, p.z + (pos.getZ(k) - p.z) * f);
+      }
+    }
+    geo.computeVertexNormals();
+  }
+  const m = new THREE.Mesh(geo, mat);
+  m.castShadow = true;
+  return m;
+}
+
+/** Heart surface: unit-sphere direction → deformed point (shared by muscle and surface vessels). */
+function deformHeart(x: number, y: number, z: number, lift = 1): THREE.Vector3 {
+  const taper = 0.42 + 0.58 * smooth(-1.05, 0.55, y);
+  let nx = x * taper;
+  const nz = z * taper * 0.86;
+  const ny = y * 1.08;
+  const below = Math.max(0, -y);
+  nx -= below * below * 0.32;
+  const atria = Math.exp(-((x - 0.42) ** 2 + (y - 0.75) ** 2 + (z + 0.15) ** 2) / 0.12) * 0.16 + Math.exp(-((x + 0.48) ** 2 + (y - 0.7) ** 2 + (z + 0.1) ** 2) / 0.12) * 0.14;
+  const groove = z > 0 ? Math.exp(-((x * 0.85 + y * 0.45 + 0.05) ** 2) / 0.006) * 0.06 * z : 0;
+  const organic = (noise3(x * 4, y * 4, z * 4) - 0.5) * 0.03 + (noise3(x * 14, y * 14, z * 14) - 0.5) * 0.008;
+  const r = (1 + atria - groove + organic) * lift;
+  return new THREE.Vector3(nx * r, ny * r, nz * r);
+}
+
+/** A vessel that hugs the heart surface: path given as unit-sphere directions. */
+function surfaceVessel(dirs: [number, number, number][], radius: number, mat: THREE.Material, taper = 1) {
+  const pts = dirs.map(([x, y, z]) => {
+    const d = new THREE.Vector3(x, y, z).normalize();
+    const p = deformHeart(d.x, d.y, d.z, 1.012);
+    return [p.x, p.y, p.z] as [number, number, number];
+  });
+  return vessel(pts, radius, mat, taper);
+}
+
+/** Anatomical-ish heart: tapered ventricles with apex, atria, great vessels, coronary arteries. */
 export function buildHeart(): BuiltObject {
-  const group = new THREE.Group();
-  const geo = heartGeometry();
-  const muscle = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xc8283a, emissive: 0x3a0610, roughness: 0.45, metalness: 0.1 }));
-  muscle.castShadow = true;
-  const shell = new THREE.Mesh(geo, holoMaterial(0xff6a7a, { opacity: 0.7, fresnel: 2.5, scan: 0.5 }));
-  shell.scale.setScalar(1.01);
-  shell.userData.noPick = true;
-  const heart = new THREE.Group();
-  heart.add(muscle, shell);
-  heart.rotation.z = -0.35;
-
-  // Great vessels
-  const vesselMat = new THREE.MeshStandardMaterial({ color: 0xb02234, emissive: 0x2a040c, roughness: 0.5 });
-  const aorta = new THREE.Mesh(
-    new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(0.1, 0.4, 0), new THREE.Vector3(0.15, 0.95, 0), new THREE.Vector3(-0.25, 1.15, 0), new THREE.Vector3(-0.55, 0.85, 0)]), 64, 0.13, 16),
-    vesselMat,
-  );
-  const vein = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(0.45, 0.35, 0.05), new THREE.Vector3(0.6, 0.85, 0.1), new THREE.Vector3(0.55, 1.15, 0.05)]), 48, 0.09, 12), new THREE.MeshStandardMaterial({ color: 0x3e5fd0, emissive: 0x08133a, roughness: 0.5 }));
-  group.add(heart, aorta, vein);
-  group.scale.setScalar(0.85);
-  return {
-    content: group,
-    radius: 1.2,
-    update(_dt, t) {
-      // ~72 bpm: quick contraction then relaxation
-      const phase = (t * 1.2) % 1;
-      const beat = phase < 0.15 ? Math.sin((phase / 0.15) * Math.PI) : phase > 0.25 && phase < 0.38 ? 0.5 * Math.sin(((phase - 0.25) / 0.13) * Math.PI) : 0;
-      heart.scale.setScalar(1 + beat * 0.06);
-    },
-  };
-}
-
-export function buildBrain(): BuiltObject {
   const geo = new THREE.SphereGeometry(1, 160, 120);
   const pos = geo.attributes.position;
   const v = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
     v.fromBufferAttribute(pos, i);
-    // Gyri / sulci folds
-    const folds =
-      Math.sin(v.x * 13 + Math.sin(v.y * 9) * 1.7) * Math.sin(v.y * 12 + Math.sin(v.z * 8) * 1.4) * Math.sin(v.z * 11 + Math.sin(v.x * 7) * 1.2);
-    let r = 1 + folds * 0.045;
-    // Longitudinal fissure between hemispheres
-    r *= 1 - 0.16 * Math.exp(-(v.x * v.x) / 0.004) * (v.y > -0.3 ? 1 : 0.3);
-    // Flatter underside
-    if (v.y < -0.35) r *= 1 - (-0.35 - v.y) * 0.35;
-    v.multiplyScalar(r);
-    v.set(v.x * 0.82, v.y * 0.7, v.z * 1.05);
-    pos.setXYZ(i, v.x, v.y, v.z);
+    const p = deformHeart(v.x, v.y, v.z);
+    pos.setXYZ(i, p.x, p.y, p.z);
   }
   geo.computeVertexNormals();
 
+  const heart = new THREE.Group();
+  const muscle = new THREE.Mesh(geo, tissue(0x6e1016, { roughness: 0.38, clearcoat: 0.85, clearcoatRoughness: 0.18, sheen: 0.25, envMapIntensity: 0.5 }));
+  muscle.castShadow = true;
+  muscle.receiveShadow = true;
+  heart.add(muscle);
+
+  const artery = tissue(0x921a22, { roughness: 0.32, envMapIntensity: 0.5 });
+  const vein = tissue(0x2c467f, { sheenColor: new THREE.Color(0x9ab0ff), envMapIntensity: 0.5 });
+  const coronary = tissue(0xa82a30, { roughness: 0.3, envMapIntensity: 0.5 });
+  const fat = tissue(0xc9a25e, { roughness: 0.55, clearcoat: 0.5, envMapIntensity: 0.4 });
+  // Aortic arch with its three branches
+  heart.add(vessel([[0.05, 0.75, 0.05], [0.12, 1.25, 0.05], [-0.08, 1.55, -0.12], [-0.5, 1.5, -0.3], [-0.68, 1.05, -0.38]], 0.17, artery));
+  for (const [x0, h] of [[0.0, 0.5], [-0.22, 0.45], [-0.42, 0.42]] as [number, number][]) {
+    heart.add(vessel([[x0, 1.52, -0.15], [x0 + 0.02, 1.52 + h * 0.6, -0.15], [x0 + 0.05, 1.52 + h, -0.12]], 0.055, artery, 0.7));
+  }
+  // Pulmonary trunk and branches
+  heart.add(vessel([[-0.15, 0.6, 0.35], [-0.25, 1.1, 0.35], [-0.5, 1.28, 0.15]], 0.15, vein));
+  heart.add(vessel([[-0.32, 1.18, 0.3], [0.1, 1.3, 0.25], [0.45, 1.22, 0.1]], 0.08, vein, 0.8));
+  // Superior vena cava
+  heart.add(vessel([[0.55, 0.7, -0.15], [0.6, 1.2, -0.15], [0.58, 1.6, -0.12]], 0.12, vein));
+  // Coronary arteries and epicardial fat, following the surface
+  heart.add(surfaceVessel([[0.05, 0.55, 0.8], [-0.12, 0.25, 0.95], [-0.3, -0.15, 0.94], [-0.45, -0.55, 0.7], [-0.4, -0.85, 0.35]], 0.03, coronary, 0.45));
+  heart.add(surfaceVessel([[0.05, 0.55, 0.8], [-0.12, 0.25, 0.95], [-0.3, -0.15, 0.94]], 0.05, fat, 0.7));
+  heart.add(surfaceVessel([[0.3, 0.5, 0.8], [0.7, 0.3, 0.62], [0.95, 0.0, 0.2], [0.85, -0.2, -0.45]], 0.03, coronary, 0.55));
+  heart.add(surfaceVessel([[-0.2, 0.45, 0.85], [-0.6, 0.2, 0.75], [-0.85, -0.2, 0.45]], 0.022, coronary, 0.5));
+
   const group = new THREE.Group();
-  const cortex = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xd8c3cf, emissive: 0x1a1020, roughness: 0.55, metalness: 0.05 }));
+  heart.rotation.set(0.1, -0.35, -0.25);
+  heart.scale.setScalar(0.72);
+  group.add(heart);
+  group.position.y = -0.15;
+  return {
+    content: group,
+    radius: 1.25,
+    update(_dt, t) {
+      const phase = (t * 1.2) % 1;
+      const beat = phase < 0.14 ? Math.sin((phase / 0.14) * Math.PI) : phase > 0.24 && phase < 0.36 ? 0.45 * Math.sin(((phase - 0.24) / 0.12) * Math.PI) : 0;
+      const sc = 0.72 * (1 + beat * 0.045);
+      heart.scale.set(sc, sc * (1 - beat * 0.02), sc);
+    },
+  };
+}
+
+/** Brain: ridged-noise gyri/sulci (darker in the folds), fissure, temporal lobes, cerebellum, stem. */
+export function buildBrain(): BuiltObject {
+  const geo = new THREE.SphereGeometry(1, 260, 190);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const base = new THREE.Color(0xc4908f);
+  const deep = new THREE.Color(0x4a2329);
+  const c = new THREE.Color();
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const { x, y, z } = v;
+    // Folds: domain-warped ridged noise
+    const wx = x + (noise3(x * 2, y * 2, z * 2) - 0.5) * 0.6;
+    const wy = y + (noise3(x * 2 + 7, y * 2, z * 2) - 0.5) * 0.6;
+    const wz = z + (noise3(x * 2, y * 2 + 3, z * 2) - 0.5) * 0.6;
+    const fold = ridged(wx * 5.4, wy * 5.4, wz * 5.4);
+    let r = 1 + (fold - 0.45) * 0.15;
+    // Longitudinal fissure between hemispheres
+    const fissure = Math.exp(-(x * x) / 0.0035) * smooth(-0.35, 0.2, y);
+    r *= 1 - fissure * 0.2;
+    // Flattened underside, temporal lobes
+    if (y < -0.3) r *= 1 - (-0.3 - y) * 0.45;
+    const temporal = Math.exp(-((Math.abs(x) - 0.75) ** 2 + (y + 0.35) ** 2 + (z - 0.15) ** 2) / 0.1) * 0.08;
+    r += temporal;
+    v.multiplyScalar(r);
+    v.set(v.x * 0.8, v.y * 0.68, v.z * 1.04);
+    pos.setXYZ(i, v.x, v.y, v.z);
+    c.copy(deep).lerp(base, Math.pow(Math.min(1, Math.max(0, fold * 1.35 - 0.12)), 0.8) * (1 - fissure * 0.7));
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+
+  const group = new THREE.Group();
+  const cortex = new THREE.Mesh(geo, tissue(0xffffff, { vertexColors: true, roughness: 0.48, clearcoat: 0.55, clearcoatRoughness: 0.3, sheen: 0.35, sheenColor: new THREE.Color(0xffb0b0), envMapIntensity: 0.45 }));
   cortex.castShadow = true;
-  const shell = new THREE.Mesh(geo, holoMaterial(HOLO_CYAN, { opacity: 0.45, fresnel: 2.4, scan: 0.6 }));
-  shell.scale.setScalar(1.01);
-  shell.userData.noPick = true;
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.08, 0.6, 24), new THREE.MeshStandardMaterial({ color: 0xc9b2bf, roughness: 0.6 }));
-  stem.position.set(0, -0.62, -0.25);
+  cortex.receiveShadow = true;
+
+  // Cerebellum with fine horizontal folia
+  const cg = new THREE.SphereGeometry(0.34, 96, 64);
+  const cp = cg.attributes.position;
+  for (let i = 0; i < cp.count; i++) {
+    v.fromBufferAttribute(cp, i);
+    const f = 1 + Math.sin(v.y * 70) * 0.025 + (noise3(v.x * 8, v.y * 8, v.z * 8) - 0.5) * 0.03;
+    cp.setXYZ(i, v.x * f * 1.35, v.y * f * 0.72, v.z * f * 0.95);
+  }
+  cg.computeVertexNormals();
+  const cerebellum = new THREE.Mesh(cg, tissue(0xc79098, { roughness: 0.5 }));
+  cerebellum.position.set(0, -0.44, -0.62);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.075, 0.6, 32), tissue(0xc99aa0, { roughness: 0.5 }));
+  stem.position.set(0, -0.62, -0.28);
   stem.rotation.x = 0.35;
-  const cerebellum = new THREE.Mesh(new THREE.SphereGeometry(0.32, 48, 32), new THREE.MeshStandardMaterial({ color: 0xcdb6c4, roughness: 0.6 }));
-  cerebellum.scale.set(1.3, 0.7, 0.9);
-  cerebellum.position.set(0, -0.45, -0.68);
-  group.add(cortex, shell, stem, cerebellum, edgeLines(new THREE.IcosahedronGeometry(1.12, 2), HOLO_CYAN, 0.08, 1));
+  group.add(cortex, cerebellum, stem);
   return { content: group, radius: 1.2 };
 }

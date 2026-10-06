@@ -54,17 +54,21 @@ ARC never reloads, reconnects or resets during any of this — the handoff is a 
 
 **EYES → cursor · HANDS → actions · VOICE → JARVIS**
 
-VISOR is a third ARC mode. The device's front camera tracks your face, eyes and hands; ARC draws a HUD anchored to your face and moves a gaze cursor where you look. **Look at something, pinch to click.** Blinking never clicks.
+VISOR is a third ARC mode. The device's front camera tracks your face and hands; ARC isolates your face (background blacked out, visor colour grade, always centred) and assembles an armoured helmet HUD over it — faceplate, glowing eye lenses that close when you blink, seams, mouth grille, holographic mesh, head-pose ring. **Point with your hand, pinch to click.**
+
+The eye-tracking cursor is built in but **off by default** (VISOR → SETTINGS → EYE-TRACKING CURSOR). When on, you look to aim and pinch to click, after a short calibration.
 
 * **Enter:** "JARVIS, activate visor", or the VISOR button (PC nav / phone mode bar). VISOR opens on the device you asked from (phone by default) and uses its front camera.
 * **Exit:** "JARVIS, exit visor" (or EXIT VISOR) — returns to the mode you came from. ARC never restarts; JARVIS, the socket and history stay as they are.
-* **First use:** a short boot (FACE / GAZE / HAND TRACKING / JARVIS — real checks) and a **9-point gaze calibration**: keep your head still and follow the dot with your eyes. The calibration is stored on that device and reused; it's redone only if the screen shape changes or you say **"recalibrate gaze"**.
+* **Boot:** a short real-check sequence (FACE / HAND TRACKING / JARVIS). With the eye-tracking cursor enabled there's also a one-time **9-point gaze calibration** (stored per device; "recalibrate gaze" redoes it).
 * **In the HUD:** system status (left), 3D models, context (what you're targeting), applications (right), JARVIS response (bottom). Look at **VS Code** → `TARGET ACQUIRED` → `TARGET LOCKED` → pinch → confirmation → look at **YES** → pinch → executed.
 * **Into Playground:** "enter playground" from VISOR keeps the gaze cursor on the PC (PC webcam; calibrate once there). Look at a 3D object → `TARGET ACQUIRED · EARTH` → pinch to select, keep pinching and move your hand to drag, twist to rotate, fist to free-rotate, two hands to scale. "disable eye tracking" turns it off.
-* **Settings (GAZE button):** sensitivity, smoothing, optional dwell-click (off by default — pinch stays primary), recalibrate.
+* **SETTINGS button:** eye-tracking cursor on/off; when on — sensitivity, smoothing, optional dwell-click, recalibrate.
 * **Failures degrade gracefully:** `FACE LOST`, `GAZE CONFIDENCE LOW`, `MOVE CLOSER TO CAMERA`, `HAND TRACKING LOST` — the cursor holds still instead of jumping, and voice keeps working.
 
 **How gaze works:** MediaPipe Face Landmarker (478 landmarks incl. irises, blink blendshapes, head pose) → iris position within each eye + head pose + face position → ridge regression fitted during calibration → moving average + One-Euro filter + fixation dead-zone + confidence-gated step limit → cursor. Interactive controls use magnetic snapping with hysteresis, because webcam gaze is accurate to a few degrees, not pixels — targets in VISOR are deliberately large.
+
+**Performance:** hand + face models run in a Web Worker (falls back to the main thread where unsupported), so the UI, HUD and 3D stay at display refresh rate; the hand cursor and face HUD are interpolated between camera frames. The Playground adapts its render resolution to hold ~60 fps.
 
 **Privacy:** face and eye tracking run entirely on the device that owns the camera. No video or gaze coordinates leave it; only a status summary (face/gaze/hands state, current target name) is sent to ARC Core.
 
@@ -201,3 +205,9 @@ Mouse/touch work everywhere too (drag to move, right/shift-drag to rotate, wheel
 * **New 3D object:** add a builder in `client/src/playground/objects/` + an entry in `shared/catalog.ts`.
 * **New AI / voice provider:** implement `AIProvider` / `VoiceProvider` and swap it in `server/index.ts`.
 * **Hybrid mode:** add a mode whose `CameraManager.routes()` returns both routes.
+
+## Credits
+
+* Planet, Sun, Moon, ring and Milky Way textures: © [Solar System Scope](https://www.solarsystemscope.com/textures/), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+* Earth textures: three.js examples (NASA imagery). Country outlines: Natural Earth (public domain).
+* Hand / face tracking: Google MediaPipe Tasks (Apache 2.0).

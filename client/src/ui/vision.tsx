@@ -27,6 +27,7 @@ export function CameraPreview({ className = "", showVideo = true }: { className?
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
     return gestures.on("frame", ({ hands }) => {
+      if (document.body.classList.contains("visor-open") && !canvas.closest(".visor")) return;
       const dpr = Math.min(2, window.devicePixelRatio);
       const w = canvas.clientWidth * dpr;
       const h = canvas.clientHeight * dpr;

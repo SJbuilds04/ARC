@@ -103,6 +103,8 @@ export function Waveform({ source, bars = 40, className = "" }: { source: () => 
     let t = 0;
     const draw = () => {
       raf = requestAnimationFrame(draw);
+      // Covered by the visor → skip the work (the component stays mounted).
+      if (document.body.classList.contains("visor-open") && !canvas.closest(".visor")) return;
       t += 0.05;
       const dpr = Math.min(2, window.devicePixelRatio);
       const w = canvas.clientWidth * dpr;

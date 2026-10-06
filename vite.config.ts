@@ -8,6 +8,8 @@ export default defineConfig({
   root: fileURLToPath(new URL("./client", import.meta.url)),
   publicDir: fileURLToPath(new URL("./client/public", import.meta.url)),
   plugins: [react()],
+  // Classic (IIFE) worker: MediaPipe loads its WASM runtime with importScripts().
+  worker: { format: "iife" },
   resolve: {
     alias: { "@shared": fileURLToPath(new URL("./shared", import.meta.url)) },
   },

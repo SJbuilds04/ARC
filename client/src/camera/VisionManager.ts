@@ -3,8 +3,9 @@ import type { ArcClient } from "../core/ArcClient";
 import { useArc, setLocal, notify, dismissCode } from "../core/store";
 import { Emitter } from "../core/emitter";
 import { CameraSource } from "./CameraSource";
-import { HandTracker } from "../gestures/HandTracker";
 import type { GestureManager } from "../gestures/GestureManager";
+import { createVisionEngine, type ModelHandle, type VisionEngine } from "./VisionEngine";
+import type { FaceFrame } from "../visor/FaceTracker";
 
 const RELAY_INTERVAL_MS = 33; // ~30 fps of landmarks — a few KB/s instead of a video stream
 const REMOTE_ASPECT = 4 / 3;
@@ -18,7 +19,15 @@ const REMOTE_ASPECT = 4 / 3;
  */
 export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
   readonly camera = new CameraSource();
-  readonly tracker = new HandTracker();
+  /** Hand + face inference — in a Web Worker when possible, so the UI thread stays free. */
+  readonly engine: VisionEngine = createVisionEngine();
+  /** Hand model handle (kept as `tracker` for existing callers). */
+  readonly tracker: ModelHandle = this.engine.hands;
+  readonly faceModel: ModelHandle = this.engine.face;
+  /** Set by the VISOR while it needs face landmarks. */
+  faceWanted = false;
+  private busy = false;
+  private faceListeners = new Set<(face: FaceFrame | null, now: number) => void>();
   private capturing = false;
   private starting = false;
   private relay = false;
@@ -29,9 +38,8 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
   private statusTimer: number | null = null;
   private rafId = 0;
   private videoFrameHandle = 0;
-  private frameListeners = new Set<(video: HTMLVideoElement, now: number, aspect: number) => void>();
   private frameIndex = 0;
-  /** Run hand detection every Nth frame (VISOR raises this so face + hands fit the frame budget). */
+  /** Run hand detection every Nth frame. */
   handEvery = 1;
 
   constructor(
@@ -147,31 +155,28 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
     step();
   }
 
-  /** Other trackers (e.g. VISOR face tracking) run on the same camera frames. */
-  onFrame(listener: (video: HTMLVideoElement, now: number, aspect: number) => void): () => void {
-    this.frameListeners.add(listener);
-    return () => this.frameListeners.delete(listener);
+  /** Face landmarks for each processed frame while `faceWanted` (null = no face in view). */
+  onFace(listener: (face: FaceFrame | null, now: number) => void): () => void {
+    this.faceListeners.add(listener);
+    return () => this.faceListeners.delete(listener);
   }
 
   private processFrame(): void {
+    // Back-pressure: one frame in flight; newer camera frames are simply skipped.
+    if (this.busy) return;
     const now = performance.now();
-    const runHands = this.frameIndex++ % this.handEvery === 0;
-    let hands: Hand[] | null = null;
-    if (runHands) {
-      try {
-        hands = this.tracker.detect(this.camera.video, now);
-      } catch (err) {
-        console.warn("[vision] detect failed", err);
-        hands = [];
-      }
-    }
-    for (const listener of this.frameListeners) {
-      try {
-        listener(this.camera.video, now, this.camera.aspect);
-      } catch (err) {
-        console.warn("[vision] frame listener failed", err);
-      }
-    }
+    const want = { hands: this.frameIndex++ % this.handEvery === 0, face: this.faceWanted };
+    this.busy = true;
+    this.engine
+      .process(this.camera.video, now, want, this.camera.aspect)
+      .then((r) => this.onResult(r.hands, r.face, now))
+      .catch((err) => console.warn("[vision] inference failed", err))
+      .finally(() => (this.busy = false));
+  }
+
+  private onResult(hands: Hand[] | null, face: FaceFrame | null | undefined, now: number): void {
+    if (!this.capturing) return;
+    if (face !== undefined) for (const l of this.faceListeners) l(face, now);
     this.frames++;
     if (!hands) return;
     if (this.consumesLocally()) this.gestures.ingest(hands, now, this.camera.aspect);

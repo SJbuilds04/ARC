@@ -1,6 +1,8 @@
 import { OneEuroFilter } from "../gestures/OneEuroFilter";
 
 export interface GazeSettings {
+  /** Eye-tracking cursor. Off by default: the hand is the cursor in VISOR. */
+  gazeEnabled: boolean;
   /** Gain around the screen centre (1 = calibrated mapping). */
   sensitivity: number;
   /** 0 = responsive … 1 = very smooth. */
@@ -9,7 +11,7 @@ export interface GazeSettings {
   dwellMs: number;
 }
 
-export const DEFAULT_GAZE_SETTINGS: GazeSettings = { sensitivity: 1, smoothing: 0.55, dwellEnabled: false, dwellMs: 1000 };
+export const DEFAULT_GAZE_SETTINGS: GazeSettings = { gazeEnabled: false, sensitivity: 1, smoothing: 0.55, dwellEnabled: false, dwellMs: 1000 };
 
 const WINDOW = 5;
 

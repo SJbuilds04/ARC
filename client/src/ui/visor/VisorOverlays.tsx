@@ -112,26 +112,37 @@ function Stepper({ label, value, onDec, onInc }: { label: string; value: string;
 export function VisorSettings({ onClose }: { onClose: () => void }) {
   const s = useArc((x) => x.visor.settings);
   return (
-    <div className="visor-settings panel-solid">
+    <div className="visor-settings">
       <div className="visor-settings__head">
-        <span>GAZE SETTINGS</span>
+        <span>VISOR SETTINGS</span>
         <button className="icon-btn" onClick={onClose} aria-label="Close settings">
           <Icon.Close width={16} height={16} />
         </button>
       </div>
-      <Stepper label="SENSITIVITY" value={`${s.sensitivity.toFixed(1)}×`} onDec={() => visor.updateSettings({ sensitivity: s.sensitivity - 0.1 })} onInc={() => visor.updateSettings({ sensitivity: s.sensitivity + 0.1 })} />
-      <Stepper label="SMOOTHING" value={`${Math.round(s.smoothing * 100)}%`} onDec={() => visor.updateSettings({ smoothing: s.smoothing - 0.1 })} onInc={() => visor.updateSettings({ smoothing: s.smoothing + 0.1 })} />
       <div className="visor-settings__row">
-        <span>DWELL CLICK</span>
-        <button className={`btn btn--small ${s.dwellEnabled ? "btn--confirm" : ""}`} onClick={() => visor.updateSettings({ dwellEnabled: !s.dwellEnabled })}>
-          {s.dwellEnabled ? "ON" : "OFF"}
+        <span>EYE-TRACKING CURSOR</span>
+        <button className={`btn btn--small ${s.gazeEnabled ? "btn--confirm" : ""}`} onClick={() => visor.updateSettings({ gazeEnabled: !s.gazeEnabled })}>
+          {s.gazeEnabled ? "ON" : "OFF"}
         </button>
       </div>
-      {s.dwellEnabled && <Stepper label="DWELL TIME" value={`${s.dwellMs} ms`} onDec={() => visor.updateSettings({ dwellMs: s.dwellMs - 100 })} onInc={() => visor.updateSettings({ dwellMs: s.dwellMs + 100 })} />}
-      <button className="btn btn--small" onClick={() => visor.startCalibration()}>
-        RECALIBRATE GAZE
-      </button>
-      <p className="muted small">Look to move · pinch to click. Dwell is a secondary option; pinch stays primary.</p>
+      {s.gazeEnabled ? (
+        <>
+          <Stepper label="SENSITIVITY" value={`${s.sensitivity.toFixed(1)}×`} onDec={() => visor.updateSettings({ sensitivity: s.sensitivity - 0.1 })} onInc={() => visor.updateSettings({ sensitivity: s.sensitivity + 0.1 })} />
+          <Stepper label="SMOOTHING" value={`${Math.round(s.smoothing * 100)}%`} onDec={() => visor.updateSettings({ smoothing: s.smoothing - 0.1 })} onInc={() => visor.updateSettings({ smoothing: s.smoothing + 0.1 })} />
+          <div className="visor-settings__row">
+            <span>DWELL CLICK</span>
+            <button className={`btn btn--small ${s.dwellEnabled ? "btn--confirm" : ""}`} onClick={() => visor.updateSettings({ dwellEnabled: !s.dwellEnabled })}>
+              {s.dwellEnabled ? "ON" : "OFF"}
+            </button>
+          </div>
+          {s.dwellEnabled && <Stepper label="DWELL TIME" value={`${s.dwellMs} ms`} onDec={() => visor.updateSettings({ dwellMs: s.dwellMs - 100 })} onInc={() => visor.updateSettings({ dwellMs: s.dwellMs + 100 })} />}
+          <button className="btn btn--small" onClick={() => visor.startCalibration()}>
+            RECALIBRATE GAZE
+          </button>
+        </>
+      ) : (
+        <p className="muted small">Your hand is the cursor: point to aim, pinch to click. Turn this on to steer with your eyes instead (needs a short calibration).</p>
+      )}
     </div>
   );
 }

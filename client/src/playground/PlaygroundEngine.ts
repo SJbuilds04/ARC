@@ -3,6 +3,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { ObjectManager, type ArcObject } from "./ObjectManager";
 import { glowSprite, holoTime } from "./holo";
 
@@ -30,13 +31,19 @@ export class PlaygroundEngine {
   private orbit = { ...HOME, target: HOME.target.clone() };
   private orbitTarget = { ...HOME, target: HOME.target.clone() };
   private frames = 0;
+  private maxRatio = 1;
+  private ratio = 1;
+  private slowFor = 0;
+  private fastFor = 0;
   private fpsStart = performance.now();
   fps = 0;
   onFps: ((fps: number) => void) | null = null;
 
   constructor() {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.maxRatio = Math.min(window.devicePixelRatio, 2);
+    this.ratio = Math.min(this.maxRatio, 1.5);
+    this.renderer.setPixelRatio(this.ratio);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.95;
     this.renderer.shadowMap.enabled = true;
@@ -45,7 +52,19 @@ export class PlaygroundEngine {
     this.canvas.className = "playground-canvas";
 
     this.scene.background = new THREE.Color(0x01060e);
-    this.scene.fog = new THREE.FogExp2(0x01060e, 0.055);
+    this.scene.fog = new THREE.FogExp2(0x01060e, 0.045);
+    // Studio reflections for physically based materials (metal, car paint, glass, wet tissue).
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.38;
+    pmrem.dispose();
+    // Faint Milky Way for depth (falls back to the flat colour until it loads).
+    new THREE.TextureLoader().load("/textures/2k_stars_milky_way.jpg", (tex) => {
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.scene.background = tex;
+      this.scene.backgroundIntensity = 0.16;
+    });
 
     this.setupLights();
     this.scene.add(this.buildFloor());
@@ -90,7 +109,7 @@ export class PlaygroundEngine {
     const h = Math.max(1, this.host.clientHeight);
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
-    this.bloom.resolution.set(w, h);
+    this.bloom.resolution.set(Math.round(w / 2), Math.round(h / 2)); // half-res bloom
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -125,6 +144,31 @@ export class PlaygroundEngine {
       this.frames = 0;
       this.fpsStart = now;
       this.onFps?.(this.fps);
+      this.adaptQuality();
+    }
+  }
+
+  /** Adaptive resolution: drop pixel ratio when frames are slow, restore when there's headroom. */
+  private adaptQuality(): void {
+    if (this.fps < 48) {
+      this.slowFor++;
+      this.fastFor = 0;
+    } else if (this.fps >= 58) {
+      this.fastFor++;
+      this.slowFor = 0;
+    } else {
+      this.slowFor = 0;
+      this.fastFor = 0;
+    }
+    let next = this.ratio;
+    if (this.slowFor >= 2) next = Math.max(0.6, this.ratio - 0.2);
+    else if (this.fastFor >= 5) next = Math.min(this.maxRatio, this.ratio + 0.1);
+    if (Math.abs(next - this.ratio) > 0.01) {
+      this.ratio = next;
+      this.slowFor = 0;
+      this.fastFor = 0;
+      this.renderer.setPixelRatio(next);
+      this.resize();
     }
   }
 

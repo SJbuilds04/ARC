@@ -43,17 +43,23 @@ export class HandPointer {
   }
 
   private move(nx: number, ny: number, pose: Pose): void {
+    // Camera/inference updates arrive at ~30 Hz; the cursor glides toward them at display rate.
     this.x = nx * window.innerWidth;
     this.y = ny * window.innerHeight;
     if (!this.visible) {
       this.visible = true;
+      this.cx = this.x;
+      this.cy = this.y;
       this.cursor.classList.add("is-visible");
+      this.startGlide();
     }
-    this.cursor.style.transform = `translate3d(${this.x}px, ${this.y}px, 0)`;
     this.cursor.dataset.pose = pose;
 
-    const target = this.targetAt(this.x, this.y);
-    this.overUI = Boolean(target) || this.isOverPanel(this.x, this.y);
+    // One hit-test per hand update (not per display frame).
+    const el = document.elementFromPoint(this.x, this.y) as HTMLElement | null;
+    const hit = el && !this.cursor.contains(el) ? el.closest<HTMLElement>("button:not([disabled]), [data-hand]") : null;
+    const target = hit && !hit.closest("[data-hand-ignore]") ? hit : null;
+    this.overUI = Boolean(target) || Boolean(el?.closest(".panel, .arc-ui-block, .vpanel, .visor__dock, .visor__bottom"));
     if (target !== this.hovered) {
       this.hovered?.classList.remove("is-hand-hover");
       target?.classList.add("is-hand-hover");
@@ -62,16 +68,23 @@ export class HandPointer {
     }
   }
 
-  private targetAt(x: number, y: number): HTMLElement | null {
-    const el = document.elementFromPoint(x, y) as HTMLElement | null;
-    if (!el || this.cursor.contains(el)) return null;
-    const t = el.closest<HTMLElement>("button:not([disabled]), [data-hand]");
-    return t && !t.closest("[data-hand-ignore]") ? t : null;
-  }
-
-  private isOverPanel(x: number, y: number): boolean {
-    const el = document.elementFromPoint(x, y) as HTMLElement | null;
-    return Boolean(el?.closest(".panel, .arc-ui-block"));
+  private cx = 0;
+  private cy = 0;
+  private glideRaf = 0;
+  private startGlide(): void {
+    cancelAnimationFrame(this.glideRaf);
+    let last = performance.now();
+    const step = (now: number) => {
+      if (!this.visible) return;
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      const k = 1 - Math.exp(-dt * 30);
+      this.cx += (this.x - this.cx) * k;
+      this.cy += (this.y - this.cy) * k;
+      this.cursor.style.transform = `translate3d(${this.cx.toFixed(1)}px, ${this.cy.toFixed(1)}px, 0)`;
+      this.glideRaf = requestAnimationFrame(step);
+    };
+    this.glideRaf = requestAnimationFrame(step);
   }
 
   private press(): void {

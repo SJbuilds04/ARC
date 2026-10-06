@@ -1105,7 +1105,6 @@ input {
 }
 .camera-preview video {
   transform: scaleX(-1);
-  filter: saturate(0.6) brightness(0.8) contrast(1.05);
 }
 
 /* ── Status HUD ─────────────────────────────────────────────── */
@@ -2018,4 +2017,112 @@ input {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ── Layout fixes for laptop-size screens (overlap audit) ───── */
+.pill-box,
+.pill-box span {
+  white-space: nowrap;
+}
+@media (max-width: 1500px) {
+  .topbar__tag {
+    display: none;
+  }
+}
+@media (max-height: 860px) {
+  .pair-card__qr {
+    width: 150px;
+    padding: 6px;
+    margin-bottom: 6px;
+  }
+  .console__center {
+    gap: 12px;
+  }
+  .console__center .jarvis-orb {
+    width: 150px !important;
+    height: 150px !important;
+  }
+}
+/* Playground: left column = object panel + tools, always above the shelf */
+.pg-overlay__left {
+  bottom: 112px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.pg-overlay__left > * {
+  pointer-events: auto;
+}
+.pg-overlay__left .object-panel {
+  min-height: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+.pg-overlay__left .object-panel .panel__inner {
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.pg-overlay__left .pg-overlay__tools {
+  position: static;
+  flex: none;
+}
+.pg-overlay__right {
+  bottom: 112px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+@media (max-height: 820px) {
+  .object-panel__name {
+    font-size: 20px;
+    margin-bottom: 4px;
+  }
+  .object-panel .status-row {
+    padding: 3px 0;
+  }
+  .object-panel__actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .object-panel__actions .btn--tool {
+    padding: 0 8px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+  .vision-card__feed {
+    height: 120px;
+  }
+}
+.console__side .history-panel {
+  flex: 1 1 0;
+  min-height: 140px;
+}
+@media (max-height: 860px) {
+  .console__side .pair-card + .history-panel {
+    display: none;
+  }
+}
+
+/* ── Performance: touch devices skip live backdrop blur over video ───── */
+@media (pointer: coarse) {
+  .panel__inner,
+  .mode-btn,
+  .command-bar,
+  .pill-box,
+  .shelf,
+  .remote__shelf .shelf__item,
+  .desktop__floating .response {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .panel__inner {
+    background: rgba(4, 16, 30, 0.86);
+  }
+  .mode-btn,
+  .command-bar {
+    background: rgba(4, 16, 30, 0.88);
+  }
+}
+.hand-cursor {
+  will-change: transform;
 }

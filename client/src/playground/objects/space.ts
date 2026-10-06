@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { CountryInfo } from "@shared/catalog";
 import type { BuiltObject } from "./types";
-import { canvasTexture, glowSprite, holoMaterial, holoTime, proceduralTexture, texture } from "../holo";
+import { canvasTexture, glowSprite, holoTime, proceduralTexture, texture } from "../holo";
 
 const D = Math.PI / 180;
 
@@ -218,49 +218,55 @@ export function buildEarth(): BuiltObject {
   };
 }
 
+// ─── Real planet textures (© Solar System Scope, CC BY 4.0) with procedural fallbacks ───
+
+const grey = (seed: number) => () => proceduralTexture(512, 256, seed, (_u, _v, n) => [110 + n * 100, 110 + n * 100, 115 + n * 100]);
+const tinted = (seed: number, base: [number, number, number]) => () =>
+  proceduralTexture(512, 256, seed, (_u, v, n) => {
+    const band = Math.sin(v * 30 + n * 4) * 0.5 + 0.5;
+    return [base[0] * (0.7 + band * 0.4), base[1] * (0.7 + band * 0.4), base[2] * (0.7 + band * 0.4)];
+  });
+
+function planetMaterial(url: string, fallback: () => HTMLCanvasElement, opts: { roughness?: number; bump?: number } = {}) {
+  const map = texture(url, fallback);
+  return new THREE.MeshStandardMaterial({
+    map,
+    bumpMap: opts.bump ? map : undefined,
+    bumpScale: opts.bump ?? 0,
+    roughness: opts.roughness ?? 0.95,
+    metalness: 0,
+    envMapIntensity: 0.12,
+  });
+}
+
 export function buildMoon(): BuiltObject {
   const R = 0.85;
   const group = new THREE.Group();
-  const moon = new THREE.Mesh(
-    new THREE.SphereGeometry(R, 96, 64),
-    new THREE.MeshStandardMaterial({
-      map: texture("/textures/moon.jpg", () => proceduralTexture(512, 256, 9, (_u, _v, n) => [120 + n * 90, 120 + n * 90, 125 + n * 90])),
-      roughness: 1,
-      metalness: 0,
-    }),
-  );
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(R, 128, 96), planetMaterial("/textures/2k_moon.jpg", grey(9), { bump: 0.04 }));
   moon.castShadow = true;
-  const rim = new THREE.Mesh(new THREE.SphereGeometry(R * 1.01, 64, 48), holoMaterial(0x9fd8ff, { opacity: 0.35, fresnel: 3, scan: 0.3 }));
-  rim.userData.noPick = true;
-  group.add(moon, rim);
-  return { content: group, radius: R };
+  moon.receiveShadow = true;
+  group.add(moon);
+  return { content: group, radius: R, update: (dt) => void (moon.rotation.y += dt * 0.03) };
 }
 
 export function buildMars(): BuiltObject {
   const R = 0.95;
-  const tex = canvasTexture(
-    proceduralTexture(1024, 512, 21, (_u, v, n) => {
-      const pole = Math.abs(v - 0.5) * 2 > 0.9;
-      if (pole) return [235, 225, 220];
-      const k = n * n;
-      return [150 + k * 110, 60 + k * 60, 30 + k * 30];
-    }),
-  );
   const group = new THREE.Group();
-  const mars = new THREE.Mesh(new THREE.SphereGeometry(R, 96, 64), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }));
+  const mars = new THREE.Mesh(new THREE.SphereGeometry(R, 128, 96), planetMaterial("/textures/2k_mars.jpg", tinted(21, [190, 90, 50]), { bump: 0.05 }));
   mars.castShadow = true;
-  const atmo = atmosphere(R * 1.08, R, 0xff8a5a, 0.45);
+  const atmo = atmosphere(R * 1.06, R, 0xff9a6a, 0.45);
   atmo.userData.noPick = true;
   group.add(mars, atmo);
   return {
     content: group,
-    radius: R * 1.1,
+    radius: R * 1.06,
     props: { atmosphere: true },
     setProperty(prop, value) {
       if (prop !== "atmosphere") return false;
       atmo.visible = value;
       return true;
     },
+    update: (dt) => void (mars.rotation.y += dt * 0.05),
   };
 }
 
@@ -271,7 +277,7 @@ function ringTexture(): THREE.Texture {
   const ctx = c.getContext("2d")!;
   for (let x = 0; x < 512; x++) {
     const r = x / 512;
-    const gap = r > 0.58 && r < 0.63; // Cassini division
+    const gap = r > 0.58 && r < 0.63;
     const a = gap ? 0.05 : 0.35 + 0.5 * Math.abs(Math.sin(r * 47) * Math.sin(r * 13)) * (1 - r * 0.4);
     const shade = 180 + Math.sin(r * 90) * 30;
     ctx.fillStyle = `rgba(${shade},${shade * 0.9},${shade * 0.75},${a})`;
@@ -281,8 +287,7 @@ function ringTexture(): THREE.Texture {
 }
 
 function saturnRings(inner: number, outer: number) {
-  const geo = new THREE.RingGeometry(inner, outer, 160, 1);
-  // Remap UVs radially so the strip texture runs from inner to outer edge.
+  const geo = new THREE.RingGeometry(inner, outer, 192, 1);
   const pos = geo.attributes.position;
   const uv = geo.attributes.uv;
   const v = new THREE.Vector3();
@@ -290,26 +295,22 @@ function saturnRings(inner: number, outer: number) {
     v.fromBufferAttribute(pos, i);
     uv.setXY(i, (v.length() - inner) / (outer - inner), 0.5);
   }
+  const map = texture("/textures/2k_saturn_ring_alpha.png", () => (ringTexture().image as HTMLCanvasElement));
   const mesh = new THREE.Mesh(
     geo,
-    new THREE.MeshStandardMaterial({ map: ringTexture(), transparent: true, side: THREE.DoubleSide, depthWrite: false, roughness: 0.8 }),
+    new THREE.MeshStandardMaterial({ map, alphaMap: undefined, transparent: true, side: THREE.DoubleSide, depthWrite: false, roughness: 0.85, envMapIntensity: 0.1 }),
   );
+  mesh.receiveShadow = true;
   mesh.rotation.x = -Math.PI / 2;
   return mesh;
 }
 
 export function buildSaturn(): BuiltObject {
-  const R = 0.75;
-  const tex = canvasTexture(
-    proceduralTexture(512, 256, 5, (_u, v, n) => {
-      const band = Math.sin(v * 38 + n * 3) * 0.5 + 0.5;
-      return [190 + band * 40, 160 + band * 40, 110 + band * 30];
-    }),
-  );
+  const R = 0.72;
   const group = new THREE.Group();
-  const planet = new THREE.Mesh(new THREE.SphereGeometry(R, 96, 64), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 }));
+  const planet = new THREE.Mesh(new THREE.SphereGeometry(R, 128, 96), planetMaterial("/textures/2k_saturn.jpg", tinted(5, [215, 185, 130])));
   planet.castShadow = true;
-  const rings = saturnRings(R * 1.25, R * 2.3);
+  const rings = saturnRings(R * 1.22, R * 2.3);
   rings.userData.noPick = true;
   const tilt = new THREE.Group();
   tilt.rotation.z = 26.7 * D;
@@ -324,25 +325,27 @@ export function buildSaturn(): BuiltObject {
       rings.visible = value;
       return true;
     },
+    update: (dt) => void (planet.rotation.y += dt * 0.12),
   };
 }
 
+/** Sun: real photosphere texture, slowly churning, bright enough to bloom. */
 function sunMaterial() {
+  const map = texture("/textures/2k_sun.jpg", tinted(3, [255, 160, 60]));
+  map.wrapS = map.wrapT = THREE.RepeatWrapping; // second, scaled sample must tile without a seam
   return new THREE.ShaderMaterial({
-    uniforms: { uTime: holoTime },
-    vertexShader: /* glsl */ `varying vec3 vP; varying vec3 vN; varying vec3 vV;
-      void main(){ vP = position; vec4 mv = modelViewMatrix*vec4(position,1.0); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
-    fragmentShader: /* glsl */ `uniform float uTime; varying vec3 vP; varying vec3 vN; varying vec3 vV;
-      float h(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,37.719)))*43758.5453); }
-      float n3(vec3 p){ vec3 i=floor(p); vec3 f=fract(p); f=f*f*(3.0-2.0*f);
-        return mix(mix(mix(h(i),h(i+vec3(1,0,0)),f.x),mix(h(i+vec3(0,1,0)),h(i+vec3(1,1,0)),f.x),f.y),
-                   mix(mix(h(i+vec3(0,0,1)),h(i+vec3(1,0,1)),f.x),mix(h(i+vec3(0,1,1)),h(i+vec3(1,1,1)),f.x),f.y),f.z); }
+    uniforms: { uTime: holoTime, uMap: { value: map } },
+    vertexShader: /* glsl */ `varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      void main(){ vUv = uv; vec4 mv = modelViewMatrix*vec4(position,1.0); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
+    fragmentShader: /* glsl */ `uniform float uTime; uniform sampler2D uMap; varying vec2 vUv; varying vec3 vN; varying vec3 vV;
       void main(){
-        vec3 p = vP * 3.0;
-        float n = n3(p + uTime*0.25)*0.5 + n3(p*2.1 - uTime*0.18)*0.3 + n3(p*4.3 + uTime*0.4)*0.2;
-        vec3 col = mix(vec3(1.0,0.35,0.05), vec3(1.0,0.85,0.35), n);
-        float limb = pow(max(dot(normalize(vN), normalize(vV)),0.0), 0.4);
-        gl_FragColor = vec4(col * (0.7 + limb*0.8) * 1.6, 1.0);
+        vec2 w = vec2(sin(vUv.y * 40.0 + uTime * 0.6), cos(vUv.x * 50.0 - uTime * 0.5)) * 0.0025;
+        vec3 a = texture2D(uMap, vUv + w + vec2(uTime * 0.004, 0.0)).rgb;
+        vec3 b = texture2D(uMap, vUv * 1.7 - w * 2.0 - vec2(uTime * 0.006, 0.0)).rgb;
+        vec3 col = mix(a, b, 0.35);
+        float limb = pow(max(dot(normalize(vN), normalize(vV)), 0.0), 0.45);
+        gl_FragColor = vec4(col * vec3(1.15, 0.82, 0.52) * (0.42 + limb * 0.62), 1.0);
+        #include <colorspace_fragment>
       }`,
   });
 }
@@ -352,22 +355,22 @@ export function buildSun(): BuiltObject {
   const group = new THREE.Group();
   const sun = new THREE.Mesh(new THREE.SphereGeometry(R, 96, 64), sunMaterial());
   const corona = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowSprite("rgba(255,170,60,1)"), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-  corona.scale.setScalar(R * 4.2);
+  corona.scale.setScalar(R * 3.4);
   corona.userData.noPick = true;
   const light = new THREE.PointLight(0xffb060, 6, 9, 1.6);
   group.add(sun, corona, light);
-  return { content: group, radius: R * 1.2 };
+  return { content: group, radius: R * 1.2, update: (dt) => void (sun.rotation.y += dt * 0.03) };
 }
 
 const PLANETS = [
-  { name: "Mercury", r: 0.05, orbit: 0.62, color: 0x9c8f86, period: 0.24 },
-  { name: "Venus", r: 0.08, orbit: 0.85, color: 0xd9b27c, period: 0.62 },
-  { name: "Earth", r: 0.085, orbit: 1.1, color: 0x3d7fd9, period: 1 },
-  { name: "Mars", r: 0.065, orbit: 1.36, color: 0xc4582f, period: 1.88 },
-  { name: "Jupiter", r: 0.19, orbit: 1.78, color: 0xd1a77a, period: 11.9 },
-  { name: "Saturn", r: 0.16, orbit: 2.22, color: 0xe0c48c, period: 29.4, ring: true },
-  { name: "Uranus", r: 0.11, orbit: 2.58, color: 0x8fd6e0, period: 84 },
-  { name: "Neptune", r: 0.105, orbit: 2.9, color: 0x4766d9, period: 165 },
+  { name: "Mercury", r: 0.05, orbit: 0.62, tex: "mercury", color: [150, 140, 130] as const, period: 0.24 },
+  { name: "Venus", r: 0.08, orbit: 0.85, tex: "venus_atmosphere", color: [220, 180, 120] as const, period: 0.62 },
+  { name: "Earth", r: 0.085, orbit: 1.1, tex: "", color: [60, 120, 210] as const, period: 1 },
+  { name: "Mars", r: 0.065, orbit: 1.36, tex: "mars", color: [190, 90, 50] as const, period: 1.88 },
+  { name: "Jupiter", r: 0.19, orbit: 1.78, tex: "jupiter", color: [210, 170, 125] as const, period: 11.9 },
+  { name: "Saturn", r: 0.16, orbit: 2.22, tex: "saturn", color: [225, 195, 140] as const, period: 29.4, ring: true },
+  { name: "Uranus", r: 0.11, orbit: 2.58, tex: "uranus", color: [140, 210, 225] as const, period: 84 },
+  { name: "Neptune", r: 0.105, orbit: 2.9, tex: "neptune", color: [70, 100, 220] as const, period: 165 },
 ];
 
 export function buildSolarSystem(): BuiltObject {
@@ -376,7 +379,7 @@ export function buildSolarSystem(): BuiltObject {
   const corona = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowSprite("rgba(255,170,60,1)"), blending: THREE.AdditiveBlending, depthWrite: false }));
   corona.scale.setScalar(1.5);
   corona.userData.noPick = true;
-  group.add(sun, corona, new THREE.PointLight(0xffc080, 5, 8, 1.4));
+  group.add(sun, corona, new THREE.PointLight(0xffc080, 8, 10, 1.3));
 
   const orbits = new THREE.Group();
   orbits.userData.noPick = true;
@@ -384,10 +387,11 @@ export function buildSolarSystem(): BuiltObject {
   const planets = PLANETS.map((p, i) => {
     const pivot = new THREE.Group();
     pivot.rotation.y = i * 1.7;
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(p.r, 32, 24), new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.8, emissive: p.color, emissiveIntensity: 0.12 }));
+    const url = p.tex ? `/textures/2k_${p.tex}.jpg` : "/textures/earth_day.jpg";
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(p.r, 48, 32), planetMaterial(url, tinted(i + 30, [p.color[0], p.color[1], p.color[2]]), { roughness: 0.9 }));
     mesh.position.x = p.orbit;
     if (p.ring) {
-      const ring = saturnRings(p.r * 1.3, p.r * 2.3);
+      const ring = saturnRings(p.r * 1.25, p.r * 2.3);
       ring.rotation.x = -Math.PI / 2 + 0.45;
       mesh.add(ring);
     }
@@ -396,13 +400,12 @@ export function buildSolarSystem(): BuiltObject {
     const curve = new THREE.EllipseCurve(0, 0, p.orbit, p.orbit, 0, Math.PI * 2);
     const line = new THREE.LineLoop(
       new THREE.BufferGeometry().setFromPoints(curve.getPoints(128).map((v) => new THREE.Vector3(v.x, 0, v.y))),
-      new THREE.LineBasicMaterial({ color: 0x5fd8ff, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false }),
+      new THREE.LineBasicMaterial({ color: 0x5fd8ff, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }),
     );
     orbits.add(line);
     return { pivot, mesh, line, base: p.orbit, speed: 0.6 / Math.sqrt(p.period) };
   });
 
-  let spread = 1;
   return {
     content: group,
     radius: 3,
@@ -413,7 +416,7 @@ export function buildSolarSystem(): BuiltObject {
       return true;
     },
     explode(amount) {
-      spread = 1 + amount * 0.7;
+      const spread = 1 + amount * 0.7;
       for (const p of planets) {
         p.mesh.position.x = p.base * spread;
         p.line.scale.setScalar(spread);
