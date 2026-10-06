@@ -210,8 +210,9 @@ export class GestureManager extends Emitter<GestureEvents> {
     const m: HandMemory = {
       key: this.nextKey++,
       wrist,
-      fx: new OneEuroFilter(),
-      fy: new OneEuroFilter(),
+      // Steady when still, near-zero lag when moving (high beta).
+      fx: new OneEuroFilter(1.2, 12, 1),
+      fy: new OneEuroFilter(1.2, 12, 1),
       pinching: false,
       pose: "NONE",
       candidate: "NONE",

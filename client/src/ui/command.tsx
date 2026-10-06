@@ -106,7 +106,7 @@ export function ExecutionTimeline({ record }: { record: ExecutionRecord }) {
           );
         })}
       </div>
-      {failed && <div className="timeline__error">{record.stage === "CANCELLED" ? "CANCELLED" : record.detail ?? "FAILED"}</div>}
+      {failed && <div className="timeline__error">{record.detail ?? (record.stage === "CANCELLED" ? "CANCELLED" : "FAILED")}</div>}
     </div>
   );
 }
@@ -190,6 +190,8 @@ export function ResponseBubble({ compact = false }: { compact?: boolean }) {
 export function CommandBar({ placeholder = "Say a command, boss…" }: { placeholder?: string }) {
   const local = useArc((s) => s.local);
   const engaged = useArc((s) => s.engaged);
+  const role = useArc((s) => s.role);
+  const voiceDevice = useArc((s) => s.state?.voiceInput);
   const [typing, setTyping] = useState(false);
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -256,7 +258,7 @@ export function CommandBar({ placeholder = "Say a command, boss…" }: { placeho
         <div className="command-bar__wave" onClick={() => setTyping(true)}>
           <Waveform source={level} bars={34} />
           <span className="command-bar__label">
-            {local.mic === "error" ? local.micError : recording ? "Listening… tap mic to send" : local.mic === "sending" ? "Processing…" : local.handsFree ? "Hands-free · say “JARVIS…”" : placeholder}
+            {local.mic === "error" ? local.micError : recording ? "Listening… tap mic to send" : local.mic === "sending" ? "Processing…" : local.handsFree ? (voiceDevice && voiceDevice !== role ? `JARVIS is listening on the ${voiceDevice === "PHONE" ? "phone" : "PC"}` : "Hands-free · say “JARVIS…”") : placeholder}
           </span>
         </div>
       )}

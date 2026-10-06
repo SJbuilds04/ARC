@@ -18,6 +18,15 @@ export interface Outbound {
 }
 
 const CONFIRM_TIMEOUT_MS = 45_000;
+type ConfirmVia = "gesture" | "touch" | "voice" | "timeout" | "superseded" | "cancel";
+const CANCEL_REASON: Record<ConfirmVia, string> = {
+  gesture: "CANCELLED BY GESTURE",
+  touch: "CANCELLED ON SCREEN",
+  voice: "CANCELLED BY VOICE",
+  timeout: "TIMED OUT · NO ANSWER IN 45s",
+  superseded: "REPLACED BY A NEWER REQUEST",
+  cancel: "CANCELLED",
+};
 const STT_PROMPT = "JARVIS, ARC, VS Code, playground, spawn, Earth, Saturn, boss.";
 /** Whisper's well-known outputs for silence / noise. */
 const HALLUCINATIONS = /^(thank you\.?|thanks for watching!?|you|bye\.?|\.+|subtitles by.*|♪+|okay\.?|so\.?|uh\.?|um\.?)$/i;
@@ -31,7 +40,7 @@ const shortId = () => randomUUID().slice(0, 8);
  */
 export class Jarvis {
   private queue: Promise<void> = Promise.resolve();
-  private pendingResolve: ((approved: boolean) => void) | null = null;
+  private pendingResolve: ((r: { approved: boolean; via: ConfirmVia }) => void) | null = null;
   private pendingTimer: NodeJS.Timeout | null = null;
   private speechGeneration = 0;
 
@@ -101,7 +110,7 @@ export class Jarvis {
 
   cancel(): void {
     this.speechGeneration++;
-    if (this.core.getState().pending) this.resolvePending(false, "touch");
+    if (this.core.getState().pending) this.resolvePending(false, "cancel");
     this.core.setActivity("IDLE");
   }
 
@@ -234,7 +243,7 @@ export class Jarvis {
 
     if (decision.requiresConfirmation) {
       stage("AWAITING_CONFIRMATION");
-      const approved = await this.awaitConfirmation({
+      const { approved, via } = await this.awaitConfirmation({
         id: record.id,
         action: prepared.action,
         title: prepared.title,
@@ -245,8 +254,10 @@ export class Jarvis {
         expiresAt: Date.now() + CONFIRM_TIMEOUT_MS,
       });
       if (!approved) {
-        stage("CANCELLED");
-        this.respond("Cancelled, boss.");
+        // Record exactly why, so an unexpected cancel can be traced.
+        stage("CANCELLED", CANCEL_REASON[via]);
+        console.log(`[jarvis] request "${record.title}" cancelled via ${via}`);
+        if (via !== "superseded") this.respond(via === "timeout" ? "No answer, boss. I've cancelled it." : "Cancelled, boss.");
         return;
       }
     }
@@ -272,18 +283,18 @@ export class Jarvis {
     }
   }
 
-  private awaitConfirmation(pending: PendingAction): Promise<boolean> {
+  private awaitConfirmation(pending: PendingAction): Promise<{ approved: boolean; via: ConfirmVia }> {
     // Only one confirmation at a time: a newer request supersedes the old one.
-    if (this.core.getState().pending) this.resolvePending(false, "touch");
+    if (this.core.getState().pending) this.resolvePending(false, "superseded");
     return new Promise((resolve) => {
       this.pendingResolve = resolve;
       this.core.setPending(pending);
       this.out.broadcast({ type: "CONFIRM_REQUEST", pending });
-      this.pendingTimer = setTimeout(() => this.resolvePending(false, "touch"), CONFIRM_TIMEOUT_MS);
+      this.pendingTimer = setTimeout(() => this.resolvePending(false, "timeout"), CONFIRM_TIMEOUT_MS);
     });
   }
 
-  private resolvePending(approved: boolean, via: "gesture" | "touch" | "voice"): void {
+  private resolvePending(approved: boolean, via: ConfirmVia): void {
     const pending = this.core.getState().pending;
     if (!pending) return;
     if (approved && via === "voice" && pending.risk === "HIGH") {
@@ -296,7 +307,7 @@ export class Jarvis {
     this.pendingResolve = null;
     this.core.setPending(null);
     this.out.broadcast({ type: "CONFIRM_RESOLVED", id: pending.id, approved });
-    resolve?.(approved);
+    resolve?.({ approved, via });
   }
 
   // ─── Output ───

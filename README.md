@@ -50,15 +50,15 @@ ARC never reloads, reconnects or resets during any of this — the handoff is a 
 
 ---
 
-## ARC VISOR — facial HUD with eye-tracking cursor
+## ARC VISOR — Iron Man helmet HUD
 
-**EYES → cursor · HANDS → actions · VOICE → JARVIS**
+**FACE → HUD · HANDS → actions · VOICE → JARVIS**
 
-VISOR is a third ARC mode. The device's front camera tracks your face and hands; ARC isolates your face (background blacked out, visor colour grade, always centred) and assembles an armoured helmet HUD over it — faceplate, glowing eye lenses that close when you blink, seams, mouth grille, holographic mesh, head-pose ring. **Point with your hand, pinch to click.**
+VISOR is an optional third ARC mode; the Playground and JARVIS are the main features. It puts you inside the helmet. The front camera tracks your face and hands. ARC cuts out your real face along its contour, hairline included, with a soft feathered edge, blacks out the background and keeps the face framed. Around it sits the helmet interior: an eye reticle locked to your eye (it blinks with you), a TARGET LOCK callout with head yaw/pitch, a voice ring on your mouth, curved glass side panels (systems readout with a hologram suit whose arms light up when your hands are tracked; apps and 3D models), and a glowing console rim with blue flares. **Point with your hand, pinch to click.**
 
 The eye-tracking cursor is built in but **off by default** (VISOR → SETTINGS → EYE-TRACKING CURSOR). When on, you look to aim and pinch to click, after a short calibration.
 
-* **Enter:** "JARVIS, activate visor", or the VISOR button (PC nav / phone mode bar). VISOR opens on the device you asked from (phone by default) and uses its front camera.
+* **Enter:** "JARVIS, activate visor", or the VISOR button (PC nav / phone mode bar). **Phone-first:** if the phone is connected, VISOR always opens on the phone (landscape) and uses its front camera, wherever you asked from. Without a phone it runs on the PC webcam, at lower fps (see *Performance*).
 * **Exit:** "JARVIS, exit visor" (or EXIT VISOR) — returns to the mode you came from. ARC never restarts; JARVIS, the socket and history stay as they are.
 * **Boot:** a short real-check sequence (FACE / HAND TRACKING / JARVIS). With the eye-tracking cursor enabled there's also a one-time **9-point gaze calibration** (stored per device; "recalibrate gaze" redoes it).
 * **In the HUD:** system status (left), 3D models, context (what you're targeting), applications (right), JARVIS response (bottom). Look at **VS Code** → `TARGET ACQUIRED` → `TARGET LOCKED` → pinch → confirmation → look at **YES** → pinch → executed.
@@ -68,7 +68,9 @@ The eye-tracking cursor is built in but **off by default** (VISOR → SETTINGS �
 
 **How gaze works:** MediaPipe Face Landmarker (478 landmarks incl. irises, blink blendshapes, head pose) → iris position within each eye + head pose + face position → ridge regression fitted during calibration → moving average + One-Euro filter + fixation dead-zone + confidence-gated step limit → cursor. Interactive controls use magnetic snapping with hysteresis, because webcam gaze is accurate to a few degrees, not pixels — targets in VISOR are deliberately large.
 
-**Performance:** hand + face models run in a Web Worker (falls back to the main thread where unsupported), so the UI, HUD and 3D stay at display refresh rate; the hand cursor and face HUD are interpolated between camera frames. The Playground adapts its render resolution to hold ~60 fps.
+**Performance:** hands and face each run in their own Web Worker, in parallel. ARC picks GPU if it can, otherwise the main-thread GPU path, otherwise CPU. The camera frame and its landmarks are drawn together, so the HUD never trails your face. The hand cursor is One-Euro filtered and drawn at display refresh with short motion prediction. The Playground adapts its render resolution to hold ~60 fps, and on Intel / weak GPUs it starts at 1× resolution with cheaper shadows.
+
+The VISOR status panel shows a live perf line: `CAM 30 · HANDS 30 (WORKER · GPU) · FACE 30 (WORKER · GPU)`. **Video can never be smoother than the camera.** Most laptop webcams top out at 30 fps (≈15 fps in dim light), so on the PC the face video moves at camera speed while the HUD and cursor stay at 60. Phones deliver 60 fps from the front camera, which is why VISOR prefers the phone. If the line shows `CPU`, the browser has no WebGL for MediaPipe: update the GPU driver and enable hardware acceleration in Chrome/Edge.
 
 **Privacy:** face and eye tracking run entirely on the device that owns the camera. No video or gaze coordinates leave it; only a status summary (face/gaze/hands state, current target name) is sent to ARC Core.
 
@@ -116,7 +118,9 @@ ARC/
 ## Voice
 
 * **Push-to-talk:** tap the mic, speak, tap again.
-* **Hands-free:** toggle the ear icon. ARC detects speech locally and only acts on phrases that start with **"JARVIS"** (follow-ups like "make it bigger" work for a few seconds after a reply). JARVIS never listens to himself while speaking.
+* **Hands-free (on by default):** toggle the ear icon. ARC detects speech locally and only acts on phrases that start with **"JARVIS"** (follow-ups like "make it bigger" work for a few seconds after a reply). JARVIS never listens to himself while speaking, on either device.
+* **Which mic listens:** the phone's, whenever the phone is connected. Otherwise the PC's (click or press a key once so the browser allows audio). The command bar says where JARVIS is listening.
+* **Cancelled actions say why:** the timeline shows *Cancelled by voice / touch / gesture*, *No answer — timed out*, or *Replaced by a newer request*, and the server logs it too. Open-hand palm only stops JARVIS talking. It no longer cancels a pending confirmation.
 * Speech-to-text: Groq `whisper-large-v3-turbo`. Common commands are parsed locally (instant, offline-safe); everything else goes to Groq.
 
 ### Things to say
@@ -198,6 +202,8 @@ Mouse/touch work everywhere too (drag to move, right/shift-drag to rotate, wheel
 * **"ARC was opened in another tab"** — one console per role; press *USE ARC HERE* to take over.
 * **JARVIS uses the browser voice** — accept the Orpheus terms (see above).
 * **Hand tracking slow** — good light helps; MediaPipe uses the GPU when available and falls back to CPU.
+* **VISOR laggy on the PC** — check the perf line. `CAM 15` means the webcam is light-starved (more light helps). `CPU` means no GPU path. Low-end laptops (2-core CPUs with integrated graphics) are the real limit, so connect the phone and VISOR moves there.
+* **ARC opens in Command mode** after every server start. That's deliberate.
 
 ## Extending
 

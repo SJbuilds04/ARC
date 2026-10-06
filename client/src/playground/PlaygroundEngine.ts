@@ -32,6 +32,7 @@ export class PlaygroundEngine {
   private orbitTarget = { ...HOME, target: HOME.target.clone() };
   private frames = 0;
   private maxRatio = 1;
+  private weakGpu = false;
   private ratio = 1;
   private slowFor = 0;
   private fastFor = 0;
@@ -42,7 +43,12 @@ export class PlaygroundEngine {
   constructor() {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.maxRatio = Math.min(window.devicePixelRatio, 2);
-    this.ratio = Math.min(this.maxRatio, 1.5);
+    // Integrated / software GPUs start at native-or-lower resolution; adaptive quality raises it if there's headroom.
+    const gl = this.renderer.getContext();
+    const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+    const gpu = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : "";
+    this.weakGpu = /Intel|SwiftShader|llvmpipe|Mali|Adreno [1-5]/i.test(gpu);
+    this.ratio = this.weakGpu ? Math.min(1, this.maxRatio) : Math.min(this.maxRatio, 1.5);
     this.renderer.setPixelRatio(this.ratio);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.95;
@@ -76,6 +82,7 @@ export class PlaygroundEngine {
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.5, 0.5, 0.55);
     this.composer.addPass(this.bloom);
+    if (this.weakGpu) this.renderer.shadowMap.type = THREE.PCFShadowMap; // cheaper shadows on integrated graphics
     this.composer.addPass(new OutputPass());
     this.applyCamera();
   }

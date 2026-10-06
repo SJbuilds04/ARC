@@ -13,6 +13,8 @@ export interface FaceFrame {
   /** Blink blendshapes 0..1 (subject's left / right eye). */
   blinkLeft: number;
   blinkRight: number;
+  /** Mouth openness 0..1 (talking). */
+  jawOpen: number;
   /** 4×4 column-major facial transformation matrix (head pose), if available. */
   matrix: number[] | null;
   aspect: number;
@@ -28,6 +30,7 @@ export class FaceTracker {
   private loading: Promise<void> | null = null;
   private lastTs = 0;
   error: string | null = null;
+  delegate: "GPU" | "CPU" | null = null;
 
   get ready(): boolean {
     return this.landmarker !== null;
@@ -51,9 +54,11 @@ export class FaceTracker {
       });
       try {
         this.landmarker = await FaceLandmarker.createFromOptions(fileset, options("GPU"));
+        this.delegate = "GPU";
       } catch (gpuErr) {
         console.warn("[face] GPU delegate failed, using CPU", gpuErr);
         this.landmarker = await FaceLandmarker.createFromOptions(fileset, options("CPU"));
+        this.delegate = "CPU";
       }
       this.error = null;
     })().catch((err) => {
@@ -78,6 +83,7 @@ export class FaceTracker {
       points,
       blinkLeft: shape("eyeBlinkLeft"),
       blinkRight: shape("eyeBlinkRight"),
+      jawOpen: shape("jawOpen"),
       matrix: result.facialTransformationMatrixes[0]?.data ?? null,
       aspect,
     };

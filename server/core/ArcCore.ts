@@ -61,13 +61,15 @@ export class ArcCore extends EventEmitter<CoreEvents> {
       notes: [],
       visor: { device: null, previousMode: "COMMAND", gazeInPlayground: false },
     });
-    this.camera = new CameraManager(this.session.activeSource);
+    this.camera = new CameraManager("PHONE");
 
     this.state = {
       sessionId: randomUUID(),
       startedAt: Date.now(),
-      mode: this.session.mode,
+      // ARC always opens in Command mode (history and scene are still restored).
+      mode: "COMMAND",
       primaryDevice: "PC",
+      voiceInput: "PC",
       vision: { activeSource: this.camera.activeSource, routes: [], sources: this.camera.sources },
       devices: { PHONE: { connected: false }, PC: { connected: false } },
       services: {
@@ -141,7 +143,9 @@ export class ArcCore extends EventEmitter<CoreEvents> {
     if (mode === "VISOR") {
       visor.previousMode = from;
       const { devices } = this.state;
-      visor.device = requester && devices[requester].connected ? requester : devices.PHONE.connected ? "PHONE" : "PC";
+      // VISOR is phone-first; the PC runs it only when no phone is connected.
+      void requester;
+      visor.device = devices.PHONE.connected ? "PHONE" : "PC";
     }
     if (mode === "PLAYGROUND") visor.gazeInPlayground = from === "VISOR";
     if (from === "VISOR" && mode !== "PLAYGROUND") visor.status = { ...VISOR_STATUS_OFF, calibrated: visor.status.calibrated };
@@ -206,6 +210,8 @@ export class ArcCore extends EventEmitter<CoreEvents> {
       const other: DeviceRole = visor.device === "PHONE" ? "PC" : "PHONE";
       this.state.primaryDevice = devices[visor.device].connected || !devices[other].connected ? visor.device : other;
     } else this.state.primaryDevice = mode === "COMMAND" && devices.PHONE.connected ? "PHONE" : "PC";
+    // JARVIS's always-listening mic: the phone when connected, otherwise the PC.
+    this.state.voiceInput = devices.PHONE.connected ? "PHONE" : "PC";
     this.state.vision.activeSource = this.camera.activeSource;
     this.state.vision.routes = this.camera.routes(this.state.primaryDevice);
   }

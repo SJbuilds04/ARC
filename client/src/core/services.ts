@@ -89,16 +89,26 @@ if (ROLE === "PC") {
 
 // ─── Gesture-level shortcuts ───
 
+// Open palm silences JARVIS. It deliberately does NOT cancel confirmations: a hand held
+// open in front of the camera was cancelling requests by accident. Use NO, or say "no".
 gestures.on("palmhold", () => {
-  const { state, local } = useArc.getState();
-  if (state?.pending) arc.send({ type: "CONFIRM_RESPONSE", id: state.pending.id, approved: false, via: "gesture" });
-  else if (local.speaking) {
+  if (useArc.getState().local.speaking) {
     voiceOut.stop();
     arc.send({ type: "CANCEL" });
   }
 });
 gestures.on("pose", ({ pose }) => setLocal({ gesture: pose }));
 gestures.on("lost", () => setLocal({ gesture: "NONE" }));
+
+// The PC is the listening device when no phone is connected: start the mic on the first
+// click / key press (browsers require a user gesture before audio capture + playback).
+if (ROLE === "PC") {
+  const firstGesture = () => {
+    if (useArc.getState().state?.voiceInput === "PC" && !useArc.getState().engaged) void engage();
+  };
+  window.addEventListener("pointerdown", firstGesture, { capture: true });
+  window.addEventListener("keydown", firstGesture, { capture: true });
+}
 
 /** First user tap: unlock audio output and the microphone (mobile browsers require a gesture). */
 export async function engage(): Promise<void> {

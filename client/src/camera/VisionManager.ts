@@ -4,7 +4,7 @@ import { useArc, setLocal, notify, dismissCode } from "../core/store";
 import { Emitter } from "../core/emitter";
 import { CameraSource } from "./CameraSource";
 import type { GestureManager } from "../gestures/GestureManager";
-import { createVisionEngine, type ModelHandle, type VisionEngine } from "./VisionEngine";
+import { VisionEngine, type ModelHandle } from "./VisionEngine";
 import type { FaceFrame } from "../visor/FaceTracker";
 
 const RELAY_INTERVAL_MS = 33; // ~30 fps of landmarks — a few KB/s instead of a video stream
@@ -20,14 +20,18 @@ const REMOTE_ASPECT = 4 / 3;
 export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
   readonly camera = new CameraSource();
   /** Hand + face inference — in a Web Worker when possible, so the UI thread stays free. */
-  readonly engine: VisionEngine = createVisionEngine();
+  readonly engine = new VisionEngine();
   /** Hand model handle (kept as `tracker` for existing callers). */
   readonly tracker: ModelHandle = this.engine.hands;
   readonly faceModel: ModelHandle = this.engine.face;
   /** Set by the VISOR while it needs face landmarks. */
   faceWanted = false;
-  private busy = false;
+  private handsBusy = false;
+  private faceBusy = false;
   private faceListeners = new Set<(face: FaceFrame | null, now: number) => void>();
+  /** The exact frame the latest face landmarks belong to (worker path) — drawn by the visor so the HUD never drifts. */
+  latestFrame: { bitmap: ImageBitmap; at: number } | null = null;
+  private stats = { camera: 0, hands: 0, face: 0, handsMs: 0, faceMs: 0, since: performance.now() };
   private capturing = false;
   private starting = false;
   private relay = false;
@@ -162,16 +166,56 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
   }
 
   private processFrame(): void {
-    // Back-pressure: one frame in flight; newer camera frames are simply skipped.
-    if (this.busy) return;
     const now = performance.now();
-    const want = { hands: this.frameIndex++ % this.handEvery === 0, face: this.faceWanted };
-    this.busy = true;
-    this.engine
-      .process(this.camera.video, now, want, this.camera.aspect)
-      .then((r) => this.onResult(r.hands, r.face, now))
-      .catch((err) => console.warn("[vision] inference failed", err))
-      .finally(() => (this.busy = false));
+    this.stats.camera++;
+    const aspect = this.camera.aspect;
+    const video = this.camera.video;
+    // Hands and face run in parallel on separate workers; each skips frames while busy.
+    if (!this.handsBusy && this.tracker.ready && this.frameIndex++ % this.handEvery === 0) {
+      this.handsBusy = true;
+      const t0 = performance.now();
+      this.engine
+        .runHands(video, now, aspect)
+        .then((hands) => {
+          this.stats.hands++;
+          this.stats.handsMs = this.stats.handsMs * 0.8 + (performance.now() - t0) * 0.2;
+          this.onResult(hands, undefined, now);
+        })
+        .catch((err) => console.warn("[vision] hands failed", err))
+        .finally(() => (this.handsBusy = false));
+    }
+    if (this.faceWanted && !this.faceBusy && this.faceModel.ready) {
+      this.faceBusy = true;
+      const t0 = performance.now();
+      this.engine
+        .runFace(video, now, aspect)
+        .then((r) => {
+          this.stats.face++;
+          this.stats.faceMs = this.stats.faceMs * 0.8 + (performance.now() - t0) * 0.2;
+          if (r.bitmap) {
+            if (!this.faceWanted || !this.capturing) r.bitmap.close();
+            else {
+              this.latestFrame?.bitmap.close();
+              this.latestFrame = { bitmap: r.bitmap, at: performance.now() };
+            }
+          }
+          if (this.capturing) for (const l of this.faceListeners) l(r.face, now);
+        })
+        .catch((err) => console.warn("[vision] face failed", err))
+        .finally(() => (this.faceBusy = false));
+    } else if (!this.faceWanted && this.latestFrame) {
+      this.latestFrame.bitmap.close();
+      this.latestFrame = null;
+    }
+    const st = this.stats;
+    if (now - st.since >= 1000) {
+      const k = 1000 / (now - st.since);
+      setLocal({
+        trackerFps: Math.round(st.hands * k),
+        perf: { camera: Math.round(st.camera * k), hands: Math.round(st.hands * k), face: Math.round(st.face * k), handsMs: Math.round(st.handsMs), faceMs: Math.round(st.faceMs), handsWhere: this.tracker.where, faceWhere: this.faceModel.where },
+      });
+      Object.assign(st, { camera: 0, hands: 0, face: 0, since: now });
+    }
   }
 
   private onResult(hands: Hand[] | null, face: FaceFrame | null | undefined, now: number): void {
@@ -190,7 +234,7 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
       });
     }
     if (now - this.fpsWindowStart >= 1000) {
-      setLocal({ trackerFps: Math.round((this.frames * 1000) / (now - this.fpsWindowStart)), hands: hands.length });
+      setLocal({ hands: hands.length });
       this.frames = 0;
       this.fpsWindowStart = now;
     }

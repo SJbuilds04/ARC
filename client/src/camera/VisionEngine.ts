@@ -8,32 +8,149 @@ export type Model = "hands" | "face";
 export interface ModelHandle {
   readonly ready: boolean;
   readonly error: string | null;
+  /** Where inference runs and on what. */
+  readonly where: string;
   load(): Promise<void>;
 }
 
-export interface VisionResult {
-  /** null = not run this frame. */
-  hands: Hand[] | null;
-  /** undefined = not run this frame; null = no face. */
-  face: FaceFrame | null | undefined;
+export interface FaceResult {
+  face: FaceFrame | null;
+  /** The exact frame the landmarks belong to (worker path), for drift-free drawing. */
+  bitmap: ImageBitmap | null;
   ms: number;
 }
 
-export interface VisionEngine {
+/** One model's runner (worker or main thread). */
+interface Runner<R> {
+  readonly delegate: "GPU" | "CPU" | null;
   readonly kind: "worker" | "main";
-  readonly hands: ModelHandle;
-  readonly face: ModelHandle;
-  process(video: HTMLVideoElement, ts: number, want: { hands: boolean; face: boolean }, aspect: number): Promise<VisionResult>;
+  load(): Promise<void>;
+  run(video: HTMLVideoElement, ts: number, aspect: number): Promise<R>;
+  dispose(): void;
 }
 
-class Handle implements ModelHandle {
+const ABS = (p: string) => new URL(p, location.origin).href;
+
+class WorkerRunner<R> implements Runner<R> {
+  readonly kind = "worker" as const;
+  delegate: "GPU" | "CPU" | null = null;
+  private worker = new Worker(new URL("./vision.worker.ts", import.meta.url));
+  private nextId = 1;
+  private pending = new Map<number, (m: Record<string, unknown>) => void>();
+  private loadWaiter: { resolve: () => void; reject: (e: Error) => void } | null = null;
+
+  constructor(
+    private readonly model: Model,
+    private readonly decode: (m: Record<string, unknown>, aspect: number) => R,
+    private readonly opts: { resize?: number; returnBitmap?: boolean } = {},
+  ) {
+    this.worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === "loaded") {
+        this.delegate = m.delegate;
+        this.loadWaiter?.resolve();
+      } else if (m.type === "load-error") this.loadWaiter?.reject(new Error(m.error));
+      else if (m.type === "result") {
+        const done = this.pending.get(m.id);
+        this.pending.delete(m.id);
+        done?.(m);
+      }
+    };
+    this.worker.onerror = (e) => this.loadWaiter?.reject(new Error(e.message || "Vision worker crashed"));
+  }
+
+  load(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.loadWaiter = { resolve, reject };
+      this.worker.postMessage({ type: "load", model: this.model, base: ABS("/mediapipe"), assets: ABS("/models") });
+    });
+  }
+
+  async run(video: HTMLVideoElement, ts: number, aspect: number): Promise<R> {
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    const scale = this.opts.resize && w > this.opts.resize ? this.opts.resize / w : 1;
+    const bitmap = scale < 1 ? await createImageBitmap(video, { resizeWidth: Math.round(w * scale), resizeHeight: Math.round(h * scale), resizeQuality: "low" }) : await createImageBitmap(video);
+    const id = this.nextId++;
+    const m = await new Promise<Record<string, unknown>>((resolve) => {
+      this.pending.set(id, resolve);
+      this.worker.postMessage({ type: "frame", id, ts, bitmap, returnBitmap: this.opts.returnBitmap }, [bitmap]);
+    });
+    return this.decode(m, aspect);
+  }
+
+  dispose(): void {
+    this.worker.terminate();
+  }
+}
+
+function decodeFace(m: Record<string, unknown>, aspect: number): FaceResult {
+  const f = m.face as { points: Float32Array; blinkLeft: number; blinkRight: number; jawOpen: number; matrix: number[] | null } | null | undefined;
+  let face: FaceFrame | null = null;
+  if (f) {
+    const a = f.points;
+    const points: Point3[] = new Array(a.length / 3);
+    for (let i = 0; i < points.length; i++) points[i] = { x: a[i * 3], y: a[i * 3 + 1], z: a[i * 3 + 2] };
+    face = { t: performance.now(), points, blinkLeft: f.blinkLeft, blinkRight: f.blinkRight, jawOpen: f.jawOpen, matrix: f.matrix, aspect };
+  }
+  return { face, bitmap: (m.bitmap as ImageBitmap | undefined) ?? null, ms: (m.ms as number) ?? 0 };
+}
+
+class MainHands implements Runner<Hand[]> {
+  readonly kind = "main" as const;
+  private t = new HandTracker();
+  get delegate() {
+    return this.t.delegate;
+  }
+  load() {
+    return this.t.load();
+  }
+  async run(video: HTMLVideoElement, ts: number) {
+    return this.t.detect(video, ts);
+  }
+  dispose() {}
+}
+
+class MainFace implements Runner<FaceResult> {
+  readonly kind = "main" as const;
+  private t = new FaceTracker();
+  get delegate() {
+    return this.t.delegate;
+  }
+  load() {
+    return this.t.load();
+  }
+  async run(video: HTMLVideoElement, ts: number, aspect: number) {
+    const t0 = performance.now();
+    return { face: this.t.detect(video, ts, aspect), bitmap: null, ms: performance.now() - t0 };
+  }
+  dispose() {}
+}
+
+/**
+ * Picks the fastest runner for a model:
+ *   worker + GPU  → best (inference never blocks the UI)
+ *   worker + CPU  → try the main thread, which may get the GPU (much faster); keep whichever has the GPU
+ *   no workers    → main thread
+ */
+class ModelSlot<R> implements ModelHandle {
   ready = false;
   error: string | null = null;
+  runner: Runner<R> | null = null;
   private loading: Promise<void> | null = null;
-  constructor(private readonly loader: () => Promise<void>) {}
+
+  constructor(
+    private readonly makeWorker: (() => Runner<R>) | null,
+    private readonly makeMain: () => Runner<R>,
+  ) {}
+
+  get where(): string {
+    return this.runner ? `${this.runner.kind === "worker" ? "WORKER" : "MAIN"} · ${this.runner.delegate ?? "?"}` : "—";
+  }
+
   load(): Promise<void> {
     if (this.ready) return Promise.resolve();
-    this.loading ??= this.loader().then(
+    this.loading ??= this.pick().then(
       () => {
         this.ready = true;
         this.error = null;
@@ -46,145 +163,60 @@ class Handle implements ModelHandle {
     );
     return this.loading;
   }
+
+  private async pick(): Promise<void> {
+    if (this.makeWorker) {
+      try {
+        const w = this.makeWorker();
+        await w.load();
+        if (w.delegate === "GPU") {
+          this.runner = w;
+          return;
+        }
+        // Worker only got the CPU: see whether the main thread can use the GPU.
+        try {
+          const m = this.makeMain();
+          await m.load();
+          if (m.delegate === "GPU") {
+            w.dispose();
+            this.runner = m;
+            return;
+          }
+          m.dispose();
+        } catch {
+          // keep the worker
+        }
+        this.runner = w;
+        return;
+      } catch (err) {
+        console.warn("[vision] worker unavailable, using main thread:", (err as Error).message);
+      }
+    }
+    const m = this.makeMain();
+    await m.load();
+    this.runner = m;
+  }
 }
 
-/** Inference inside a Web Worker: the main thread only grabs a bitmap per frame. */
-class WorkerEngine implements VisionEngine {
-  readonly kind = "worker" as const;
-  readonly hands: Handle;
-  readonly face: Handle;
-  private worker: Worker;
-  private nextId = 1;
-  private pending = new Map<number, (r: VisionResult) => void>();
-  private loadWaiters = new Map<Model, { resolve: () => void; reject: (e: Error) => void }>();
-  private aspect = 4 / 3;
+export class VisionEngine {
+  readonly hands: ModelSlot<Hand[]>;
+  readonly face: ModelSlot<FaceResult>;
 
   constructor() {
-    this.worker = new Worker(new URL("./vision.worker.ts", import.meta.url));
-    this.worker.onmessage = (e) => this.onMessage(e.data);
-    this.worker.onerror = (e) => {
-      const err = new Error(e.message || "Vision worker crashed");
-      for (const w of this.loadWaiters.values()) w.reject(err);
-      this.loadWaiters.clear();
-    };
-    this.hands = new Handle(() => this.loadModel("hands"));
-    this.face = new Handle(() => this.loadModel("face"));
+    const canWorker =
+      typeof Worker !== "undefined" && typeof OffscreenCanvas !== "undefined" && typeof createImageBitmap === "function" && !new URLSearchParams(location.search).has("mainvision");
+    this.hands = new ModelSlot<Hand[]>(
+      canWorker ? () => new WorkerRunner<Hand[]>("hands", (m) => (m.hands as Hand[]) ?? [], { resize: 640 }) : null,
+      () => new MainHands(),
+    );
+    this.face = new ModelSlot<FaceResult>(canWorker ? () => new WorkerRunner<FaceResult>("face", decodeFace, { returnBitmap: true }) : null, () => new MainFace());
   }
 
-  private loadModel(model: Model): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.loadWaiters.set(model, { resolve, reject });
-      this.worker.postMessage({ type: "load", model, base: new URL("/mediapipe", location.origin).href, assets: new URL("/models", location.origin).href });
-    });
+  runHands(video: HTMLVideoElement, ts: number, aspect: number): Promise<Hand[]> {
+    return this.hands.runner!.run(video, ts, aspect);
   }
 
-  private onMessage(m: { type: string; model?: Model; error?: string; id?: number; hands?: Hand[]; face?: { points: Float32Array; blinkLeft: number; blinkRight: number; matrix: number[] | null } | null; ms?: number }) {
-    if (m.type === "loaded" || m.type === "load-error") {
-      const w = this.loadWaiters.get(m.model!);
-      this.loadWaiters.delete(m.model!);
-      if (m.type === "loaded") w?.resolve();
-      else w?.reject(new Error(m.error));
-      return;
-    }
-    if (m.type === "result") {
-      const done = this.pending.get(m.id!);
-      this.pending.delete(m.id!);
-      let face: FaceFrame | null | undefined;
-      if (m.face === undefined) face = undefined;
-      else if (m.face === null) face = null;
-      else {
-        const a = m.face.points;
-        const points: Point3[] = new Array(a.length / 3);
-        for (let i = 0; i < points.length; i++) points[i] = { x: a[i * 3], y: a[i * 3 + 1], z: a[i * 3 + 2] };
-        face = { t: performance.now(), points, blinkLeft: m.face.blinkLeft, blinkRight: m.face.blinkRight, matrix: m.face.matrix, aspect: this.aspect };
-      }
-      done?.({ hands: m.hands ?? null, face, ms: m.ms ?? 0 });
-    }
-  }
-
-  async process(video: HTMLVideoElement, ts: number, want: { hands: boolean; face: boolean }, aspect: number): Promise<VisionResult> {
-    this.aspect = aspect;
-    const runHands = want.hands && this.hands.ready;
-    const runFace = want.face && this.face.ready;
-    if (!runHands && !runFace) return { hands: null, face: undefined, ms: 0 };
-    const bitmap = await createImageBitmap(video);
-    const id = this.nextId++;
-    return new Promise((resolve) => {
-      this.pending.set(id, resolve);
-      this.worker.postMessage({ type: "frame", id, ts, bitmap, hands: runHands, face: runFace }, [bitmap]);
-    });
-  }
-}
-
-/** Fallback: same models on the main thread. */
-class MainEngine implements VisionEngine {
-  readonly kind = "main" as const;
-  private handTracker = new HandTracker();
-  private faceTracker = new FaceTracker();
-  readonly hands: Handle = new Handle(() => this.handTracker.load());
-  readonly face: Handle = new Handle(() => this.faceTracker.load());
-
-  async process(video: HTMLVideoElement, ts: number, want: { hands: boolean; face: boolean }, aspect: number): Promise<VisionResult> {
-    const t0 = performance.now();
-    const hands = want.hands && this.hands.ready ? this.handTracker.detect(video, ts) : null;
-    const face = want.face && this.face.ready ? this.faceTracker.detect(video, ts, aspect) : undefined;
-    return { hands, face, ms: performance.now() - t0 };
-  }
-}
-
-/** Prefer the worker; fall back to the main thread where workers can't run MediaPipe. */
-export function createVisionEngine(): VisionEngine {
-  const canWorker = typeof Worker !== "undefined" && typeof OffscreenCanvas !== "undefined" && typeof createImageBitmap === "function";
-  if (!canWorker || new URLSearchParams(location.search).has("mainvision")) return new MainEngine();
-  try {
-    return new FallbackEngine(new WorkerEngine());
-  } catch {
-    return new MainEngine();
-  }
-}
-
-/** Wraps the worker engine; if a model fails to load there, everything moves to the main thread. */
-class FallbackEngine implements VisionEngine {
-  private active: VisionEngine;
-  private main: MainEngine | null = null;
-  readonly hands: ModelHandle;
-  readonly face: ModelHandle;
-
-  constructor(private readonly worker: WorkerEngine) {
-    this.active = worker;
-    const wrap = (model: Model): ModelHandle => {
-      const self = this;
-      return {
-        get ready() {
-          return self.active[model].ready;
-        },
-        get error() {
-          return self.active[model].error;
-        },
-        async load() {
-          try {
-            await self.active[model].load();
-          } catch (err) {
-            if (self.active !== self.worker) throw err;
-            console.warn(`[vision] worker ${model} model failed (${(err as Error).message}); using main thread`);
-            self.main ??= new MainEngine();
-            self.active = self.main;
-            // Bring over whatever the worker already had loaded.
-            for (const other of ["hands", "face"] as const) if (other !== model && self.worker[other].ready) void self.main[other].load().catch(() => undefined);
-            await self.active[model].load();
-          }
-        },
-      };
-    };
-    this.hands = wrap("hands");
-    this.face = wrap("face");
-  }
-
-  get kind() {
-    return this.active.kind;
-  }
-
-  process(video: HTMLVideoElement, ts: number, want: { hands: boolean; face: boolean }, aspect: number): Promise<VisionResult> {
-    return this.active.process(video, ts, want, aspect);
+  runFace(video: HTMLVideoElement, ts: number, aspect: number): Promise<FaceResult> {
+    return this.face.runner!.run(video, ts, aspect);
   }
 }

@@ -1,3 +1,5 @@
+const MOBILE = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+
 /**
  * A device camera. Owns the MediaStream and a hidden <video> used for
  * inference; UI previews attach to the same stream.
@@ -29,7 +31,10 @@ export class CameraSource {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } },
+        // Phones: sharper, faster front camera for the visor. PCs: lightest load for tracking.
+        video: MOBILE
+          ? { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60, max: 60 } }
+          : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } },
       });
     } catch (err) {
       const name = (err as DOMException).name;

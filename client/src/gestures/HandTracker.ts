@@ -10,6 +10,7 @@ export class HandTracker {
   private loading: Promise<void> | null = null;
   private lastTs = 0;
   error: string | null = null;
+  delegate: "GPU" | "CPU" | null = null;
 
   get ready(): boolean {
     return this.landmarker !== null;
@@ -31,9 +32,11 @@ export class HandTracker {
       });
       try {
         this.landmarker = await HandLandmarker.createFromOptions(fileset, options("GPU"));
+        this.delegate = "GPU";
       } catch (gpuErr) {
         console.warn("[tracker] GPU delegate failed, using CPU", gpuErr);
         this.landmarker = await HandLandmarker.createFromOptions(fileset, options("CPU"));
+        this.delegate = "CPU";
       }
       this.error = null;
     })().catch((err) => {

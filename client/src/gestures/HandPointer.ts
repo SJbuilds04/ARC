@@ -43,23 +43,33 @@ export class HandPointer {
   }
 
   private move(nx: number, ny: number, pose: Pose): void {
-    // Camera/inference updates arrive at ~30 Hz; the cursor glides toward them at display rate.
-    this.x = nx * window.innerWidth;
-    this.y = ny * window.innerHeight;
+    const now = performance.now();
+    const x = nx * window.innerWidth;
+    const y = ny * window.innerHeight;
+    // Velocity from consecutive samples (px/ms), lightly smoothed — used to predict between camera frames.
+    if (this.visible && this.lastSampleAt) {
+      const dt = Math.max(8, now - this.lastSampleAt);
+      this.vx = this.vx * 0.5 + ((x - this.x) / dt) * 0.5;
+      this.vy = this.vy * 0.5 + ((y - this.y) / dt) * 0.5;
+    }
+    this.x = x;
+    this.y = y;
+    this.lastSampleAt = now;
     if (!this.visible) {
       this.visible = true;
-      this.cx = this.x;
-      this.cy = this.y;
+      this.cx = x;
+      this.cy = y;
+      this.vx = this.vy = 0;
       this.cursor.classList.add("is-visible");
       this.startGlide();
     }
     this.cursor.dataset.pose = pose;
 
     // One hit-test per hand update (not per display frame).
-    const el = document.elementFromPoint(this.x, this.y) as HTMLElement | null;
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
     const hit = el && !this.cursor.contains(el) ? el.closest<HTMLElement>("button:not([disabled]), [data-hand]") : null;
     const target = hit && !hit.closest("[data-hand-ignore]") ? hit : null;
-    this.overUI = Boolean(target) || Boolean(el?.closest(".panel, .arc-ui-block, .vpanel, .visor__dock, .visor__bottom"));
+    this.overUI = Boolean(target) || Boolean(el?.closest(".panel, .arc-ui-block, .vpanel, .visor__dock, .visor__bottom, .vglass"));
     if (target !== this.hovered) {
       this.hovered?.classList.remove("is-hand-hover");
       target?.classList.add("is-hand-hover");
@@ -70,7 +80,11 @@ export class HandPointer {
 
   private cx = 0;
   private cy = 0;
+  private vx = 0;
+  private vy = 0;
+  private lastSampleAt = 0;
   private glideRaf = 0;
+  /** Renders at display refresh: predicted position (last sample + velocity × age), lightly eased. */
   private startGlide(): void {
     cancelAnimationFrame(this.glideRaf);
     let last = performance.now();
@@ -78,9 +92,12 @@ export class HandPointer {
       if (!this.visible) return;
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      const k = 1 - Math.exp(-dt * 30);
-      this.cx += (this.x - this.cx) * k;
-      this.cy += (this.y - this.cy) * k;
+      const age = Math.min(45, now - this.lastSampleAt); // never extrapolate beyond ~1.5 camera frames
+      const px = this.x + this.vx * age;
+      const py = this.y + this.vy * age;
+      const k = 1 - Math.exp(-dt * 50);
+      this.cx += (px - this.cx) * k;
+      this.cy += (py - this.cy) * k;
       this.cursor.style.transform = `translate3d(${this.cx.toFixed(1)}px, ${this.cy.toFixed(1)}px, 0)`;
       this.glideRaf = requestAnimationFrame(step);
     };

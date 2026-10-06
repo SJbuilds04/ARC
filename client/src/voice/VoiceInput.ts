@@ -126,8 +126,11 @@ export class VoiceInput {
       return;
     }
 
-    const handsFree = useArc.getState().local.handsFree;
-    const speaking = useArc.getState().local.speaking;
+    const st = useArc.getState();
+    // Hands-free only on the designated listening device (phone when connected, else PC),
+    // and never while JARVIS is speaking on ANY device (the phone must not hear the PC speakers).
+    const handsFree = st.local.handsFree && st.state?.voiceInput === st.role;
+    const speaking = st.local.speaking || st.state?.jarvis.activity === "SPEAKING";
     if (!handsFree || speaking || now < this.suspendedUntil) {
       if (this.segment) this.segment = null;
       this.voiceRun = 0;

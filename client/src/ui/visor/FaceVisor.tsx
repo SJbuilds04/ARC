@@ -1,108 +1,112 @@
 import { useEffect, useRef } from "react";
-import { visor, vision } from "../../core/services";
+import { visor, vision, voiceIn, voiceOut } from "../../core/services";
 import { useArc } from "../../core/store";
 import type { FaceEvent } from "../../visor/VisorManager";
 
 /**
- * ARC VISOR renderer — one canvas, every display frame:
- *   1. the face is cropped, centred and scaled into the HUD zone (it follows you),
- *   2. colour-graded + scanlines, then feathered into black (background blacked out),
- *   3. an armoured helmet HUD assembles over it from live landmarks.
- * Landmarks are interpolated between camera frames so motion stays smooth at
- * display refresh rate regardless of camera / inference rate.
+ * ARC VISOR renderer (helmet-interior view).
+ *  - Draws the exact camera frame the face landmarks were computed on (worker path),
+ *    so face-locked HUD elements never drift; falls back to live video when needed.
+ *  - The face stays where it is in the frame (no re-centring lag).
+ *  - Cut-out follows the real face contour + hairline with a soft feather; the rest is dark.
+ *  - Face-locked HUD: eye targeting reticle, tech frame, voice rings.
  */
 
-// Landmark sets (MediaPipe face mesh, subject's perspective)
 const OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
-const EYE_R = [33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154, 153, 145, 144, 163, 7];
-const EYE_L = [263, 466, 388, 387, 386, 385, 384, 398, 362, 382, 381, 380, 374, 373, 390, 249];
-const BROW = [70, 63, 105, 66, 107, 9, 336, 296, 334, 293, 300];
-const LIPS = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146];
-const NOSE = [168, 6, 197, 195, 5, 4];
-// Armour plates
-const FOREHEAD_PLATE = [54, 103, 67, 109, 10, 338, 297, 332, 284, 300, 293, 334, 296, 336, 9, 107, 66, 105, 63, 70];
-const SIDE_R = [33, 234, 93, 132, 58, 172, 123];
-const SIDE_L = [263, 454, 323, 361, 288, 397, 352];
 const N = 478;
+const CYAN = (a: number) => `rgba(140, 222, 255, ${a})`;
+const WHITE = (a: number) => `rgba(236, 250, 255, ${a})`;
+const AMBER = (a: number) => `rgba(255, 176, 92, ${a})`;
+const MASK_SCALE = 0.25; // mask canvas resolution (feathered edges hide the low res)
 
-const CYAN = (a: number) => `rgba(130, 220, 255, ${a})`;
-const WHITE = (a: number) => `rgba(235, 250, 255, ${a})`;
-const GOLD = (a: number) => `rgba(255, 186, 110, ${a})`;
-const CRIMSON = (a: number) => `rgba(190, 28, 38, ${a})`;
-
-let tessellation: Uint16Array | null = null;
-void import("@mediapipe/tasks-vision").then((m) => {
-  const edges = m.FaceLandmarker.FACE_LANDMARKS_TESSELATION;
-  tessellation = new Uint16Array(edges.length * 2);
-  edges.forEach((e, i) => {
-    tessellation![i * 2] = e.start;
-    tessellation![i * 2 + 1] = e.end;
-  });
-});
-
-function scanlinePattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
-  const c = document.createElement("canvas");
-  c.width = 4;
-  c.height = 4;
-  const g = c.getContext("2d")!;
-  g.fillStyle = "rgba(0,0,0,0.55)";
-  g.fillRect(0, 0, 4, 1);
-  g.fillStyle = "rgba(140,220,255,0.10)";
-  g.fillRect(0, 2, 4, 1);
-  return ctx.createPattern(c, "repeat");
+const freq = new Uint8Array(64);
+function voiceLevel(): number {
+  if (useArc.getState().local.speaking && voiceOut.analyser) {
+    voiceOut.analyser.getByteFrequencyData(freq);
+    let s = 0;
+    for (let i = 2; i < 24; i++) s += freq[i];
+    return Math.min(1, s / (22 * 170));
+  }
+  return Math.min(1, voiceIn.level * 1.6);
 }
 
-export function FaceVisor({ zoneRef }: { zoneRef: React.RefObject<HTMLDivElement | null> }) {
+/** Jitter filter for HUD anchors: snaps on real movement, smooths sub-pixel noise. */
+class Anchor {
+  x = 0;
+  y = 0;
+  r = 0;
+  private init = false;
+  update(x: number, y: number, r: number) {
+    if (!this.init) {
+      this.x = x;
+      this.y = y;
+      this.r = r;
+      this.init = true;
+      return;
+    }
+    const d = Math.hypot(x - this.x, y - this.y);
+    const k = d > 5 ? 1 : 0.35 + d * 0.13;
+    this.x += (x - this.x) * k;
+    this.y += (y - this.y) * k;
+    this.r += (r - this.r) * 0.3;
+  }
+}
+
+export function FaceVisor() {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = ref.current!;
     const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true })!;
-    const pattern = scanlinePattern(ctx);
-    const target = new Float32Array(N * 2); // latest landmarks, video px (mirrored)
-    const smooth = new Float32Array(N * 2); // interpolated for drawing
-    let hasTarget = false;
-    let primed = false;
-    let lockAt = 0;
+    const mask = document.createElement("canvas");
+    const mctx = mask.getContext("2d")!;
+    const pts = new Float32Array(N * 2); // landmarks of the frame being drawn (source px, mirrored)
+    let frame: CanvasImageSource | null = null; // the frame those landmarks belong to
+    let srcW = 640;
+    let srcH = 480;
+    let hasFace = false;
     let lostAt = 0;
+    let lockAt = 0;
     let blink = 0;
-    let yaw = 0, pitch = 0, roll = 0;
-    let zone = { x: 0, y: 0, w: 1, h: 1 };
-    const view = { cx: 0, cy: 0, s: 1, ready: false };
+    let jaw = 0;
+    let yaw = 0;
+    let pitch = 0;
     let raf = 0;
     let last = performance.now();
-
-    const measureZone = () => {
-      const r = zoneRef.current?.getBoundingClientRect();
-      const c = canvas.getBoundingClientRect();
-      if (r) zone = { x: r.left - c.left, y: r.top - c.top, w: r.width, h: r.height };
-    };
-    const ro = new ResizeObserver(measureZone);
-    if (zoneRef.current) ro.observe(zoneRef.current);
-    ro.observe(canvas);
-    measureZone();
+    const crop = { x: NaN, y: NaN }; // cover-crop offset that keeps the face in view
+    let zoom = 1; // gentle auto-zoom so the face fills the visor (slow — framing, not tracking)
+    const eyeA = new Anchor();
+    const eyeB = new Anchor();
+    const mouthA = new Anchor();
+    const cheekA = new Anchor();
 
     const take = (e: FaceEvent | null) => {
       if (!e) {
-        if (hasTarget) lostAt = performance.now();
-        hasTarget = false;
+        if (hasFace) lostAt = performance.now();
+        hasFace = false;
+        // The synced bitmap is released by the pipeline; fade out over the live video instead.
+        frame = vision.camera.video;
+        srcW = vision.camera.video.videoWidth || srcW;
+        srcH = vision.camera.video.videoHeight || srcH;
         return;
       }
-      const vw = vision.camera.video.videoWidth || 640;
-      const vh = vision.camera.video.videoHeight || 480;
+      // Pair landmarks with the exact frame they came from when the worker returned it.
+      const lf = vision.latestFrame;
+      const synced = lf && performance.now() - lf.at < 60 ? lf.bitmap : null;
+      frame = synced ?? vision.camera.video;
+      srcW = synced ? synced.width : vision.camera.video.videoWidth || 640;
+      srcH = synced ? synced.height : vision.camera.video.videoHeight || 480;
       const p = e.face.points;
       for (let i = 0; i < N; i++) {
-        target[i * 2] = (1 - p[i].x) * vw;
-        target[i * 2 + 1] = p[i].y * vh;
+        pts[i * 2] = (1 - p[i].x) * srcW;
+        pts[i * 2 + 1] = p[i].y * srcH;
       }
-      if (!hasTarget && (!primed || performance.now() - lostAt > 1200)) lockAt = performance.now();
-      if (!primed) smooth.set(target);
-      primed = true;
-      hasTarget = true;
+      if (!hasFace && performance.now() - lostAt > 1000) lockAt = performance.now();
+      hasFace = true;
       blink = Math.max(e.face.blinkLeft, e.face.blinkRight);
+      jaw = e.face.jawOpen ?? 0;
       yaw = e.sample.head.yaw;
       pitch = e.sample.head.pitch;
-      roll = e.sample.head.roll;
     };
     take(visor.latest);
     const off = visor.on("face", take);
@@ -110,357 +114,265 @@ export function FaceVisor({ zoneRef }: { zoneRef: React.RefObject<HTMLDivElement
     const draw = () => {
       raf = requestAnimationFrame(draw);
       const now = performance.now();
-      const dt = Math.min(0.1, (now - last) / 1000);
-      last = now;
       const dpr = Math.min(1.5, devicePixelRatio);
-      const W = Math.round(canvas.clientWidth * dpr);
-      const H = Math.round(canvas.clientHeight * dpr);
+      const cw = canvas.clientWidth;
+      const ch = canvas.clientHeight;
+      const W = Math.round(cw * dpr);
+      const H = Math.round(ch * dpr);
       if (canvas.width !== W || canvas.height !== H) {
         canvas.width = W;
         canvas.height = H;
+        mask.width = Math.max(1, Math.round(cw * MASK_SCALE));
+        mask.height = Math.max(1, Math.round(ch * MASK_SCALE));
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, W, H);
-      const t = now / 1000;
-      const presence = hasTarget ? 1 : Math.max(0, 1 - (now - lostAt) / 600);
-      if (!primed || presence <= 0) return;
+      const presence = hasFace ? 1 : Math.max(0, 1 - (now - lostAt) / 500);
+      if (!frame || presence <= 0) return;
 
-      // 1. Interpolate landmarks toward the latest observation.
-      const k = 1 - Math.exp(-dt * 22);
-      for (let i = 0; i < N * 2; i++) smooth[i] += (target[i] - smooth[i]) * k;
-      const X = (i: number) => smooth[i * 2];
-      const Y = (i: number) => smooth[i * 2 + 1];
+      // Cover-fit the frame (mirrored). The camera's aspect rarely matches the screen, so the
+      // crop is shifted (only within the overflow margin) to keep the face in view.
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const faceHsrc = Math.hypot(pts[152 * 2] - pts[10 * 2], pts[152 * 2 + 1] - pts[10 * 2 + 1]);
+      const cover = Math.max(cw / srcW, ch / srcH);
+      const wantZoom = Math.min(1.6, Math.max(1, (ch * 0.5) / Math.max(1, faceHsrc * cover)));
+      zoom += (wantZoom - zoom) * (1 - Math.exp(-dt * 1.2));
+      const s = cover * zoom;
+      const minX = cw - srcW * s;
+      const minY = ch - srcH * s;
+      const faceSX = (pts[234 * 2] + pts[454 * 2]) / 2;
+      const faceSY = (pts[10 * 2 + 1] + pts[152 * 2 + 1]) / 2;
+      const tx = Math.min(0, Math.max(minX, cw * 0.5 - faceSX * s));
+      const ty = Math.min(0, Math.max(minY, ch * 0.44 - faceSY * s));
+      const ck = Number.isNaN(crop.x) ? 1 : 1 - Math.exp(-dt * 8);
+      crop.x = Number.isNaN(crop.x) ? tx : crop.x + (tx - crop.x) * ck;
+      crop.y = Number.isNaN(crop.y) ? ty : crop.y + (ty - crop.y) * ck;
+      const ox = crop.x;
+      const oy = crop.y;
+      const SX = (i: number) => ox + pts[i * 2] * s;
+      const SY = (i: number) => oy + pts[i * 2 + 1] * s;
 
-      // Face frame in video px
-      const fcx = (X(234) + X(454)) / 2;
-      const fcy = (Y(10) * 0.45 + Y(152) * 0.55);
-      const faceH = Math.hypot(X(152) - X(10), Y(152) - Y(10));
-      const faceW = Math.hypot(X(454) - X(234), Y(454) - Y(234));
-      // View: keep the face centred in the zone at a constant size (eased → no jitter).
-      const desired = Math.min(zone.h * 0.52, zone.w * 0.6) / Math.max(1, faceH);
-      const zcx = zone.x + zone.w / 2;
-      const zcy = zone.y + zone.h * 0.5;
-      const vk = view.ready ? 1 - Math.exp(-dt * 6) : 1;
-      view.cx += (fcx - view.cx) * vk;
-      view.cy += (fcy - view.cy) * vk;
-      view.s += (desired - view.s) * vk;
-      view.ready = true;
-      const s = view.s;
-      const vw = vision.camera.video.videoWidth || 640;
-      // screen (CSS px) of a landmark
-      const SX = (i: number) => (X(i) - view.cx) * s + zcx;
-      const SY = (i: number) => (Y(i) - view.cy) * s + zcy;
-      const scx = (fcx - view.cx) * s + zcx;
-      const scy = (fcy - view.cy) * s + zcy;
-      const rx = faceW * s * 0.64;
-      const ry = faceH * s * 0.74;
-      // Mask centre: midway forehead↔chin, nudged up to keep the hairline and drop the neck.
-      const mcxS = ((X(10) + X(152)) / 2 - view.cx) * s + zcx;
-      const mcyS = ((Y(10) + Y(152)) / 2 - faceH * 0.1 - view.cy) * s + zcy;
-      const rollRad = (Math.atan2(Y(454) - Y(234), X(454) - X(234)));
-
-      // 2. Video (mirrored) placed by the view transform.
       ctx.globalAlpha = presence;
-      ctx.setTransform(-s * dpr, 0, 0, s * dpr, ((vw - view.cx) * s + zcx) * dpr, (zcy - view.cy * s) * dpr);
-      if (vision.camera.video.readyState >= 2) ctx.drawImage(vision.camera.video, 0, 0);
+      ctx.setTransform(-s * dpr, 0, 0, s * dpr, (ox + srcW * s) * dpr, oy * dpr);
+      try {
+        ctx.drawImage(frame, 0, 0, srcW, srcH);
+      } catch {
+        frame = vision.camera.video; // frame was released between events — use live video
+      }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      // Visor grade: cool multiply, teal lift, scanlines.
+      // Natural grade: slightly cool shadows, skin stays warm.
       ctx.globalCompositeOperation = "multiply";
-      ctx.fillStyle = "rgb(150, 205, 255)";
-      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "rgb(222, 232, 244)";
+      ctx.fillRect(0, 0, cw, ch);
       ctx.globalCompositeOperation = "screen";
-      ctx.fillStyle = "rgba(0, 55, 85, 0.35)";
-      ctx.fillRect(0, 0, W, H);
-      ctx.globalCompositeOperation = "source-over";
-      if (pattern) {
-        ctx.fillStyle = pattern;
-        ctx.globalAlpha = 0.35 * presence;
-        ctx.fillRect(0, 0, W, H);
-        ctx.globalAlpha = presence;
-      }
+      ctx.fillStyle = "rgba(0, 26, 44, 0.18)";
+      ctx.fillRect(0, 0, cw, ch);
 
-      // Feathered face mask: everything else goes to black.
-      ctx.globalCompositeOperation = "destination-in";
-      ctx.save();
-      ctx.translate(mcxS, mcyS);
-      ctx.rotate(rollRad);
-      ctx.scale(rx, ry);
-      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-      g.addColorStop(0, "rgba(0,0,0,1)");
-      g.addColorStop(0.68, "rgba(0,0,0,1)");
-      g.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(0, 0, 1, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      ctx.globalCompositeOperation = "source-over";
-
-      // 3. Helmet HUD — assembles over ~1.1s after lock.
-      const asm = Math.min(1, (now - lockAt) / 1100);
-      const ease = 1 - Math.pow(1 - asm, 3);
-      const u = 1;
-      const speaking = useArc.getState().local.speaking;
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-
-      const path = (ids: readonly number[], close = false, scaleAbout?: { x: number; y: number; f: number; fy?: number }) => {
-        ctx.beginPath();
-        ids.forEach((id, n) => {
-          let x = SX(id);
-          let y = SY(id);
-          if (scaleAbout) {
-            x = scaleAbout.x + (x - scaleAbout.x) * scaleAbout.f;
-            y = scaleAbout.y + (y - scaleAbout.y) * (scaleAbout.fy ?? scaleAbout.f);
-          }
-          if (n === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+      // Contour mask: face outline, upper points pushed out to include the hair; layered feather.
+      const cx = (SX(234) + SX(454)) / 2;
+      const cy = (SY(10) + SY(152)) / 2;
+      const eyeLine = (SY(33) + SY(263)) / 2;
+      const faceH = Math.hypot(SX(152) - SX(10), SY(152) - SY(10));
+      mctx.setTransform(1, 0, 0, 1, 0, 0);
+      mctx.clearRect(0, 0, mask.width, mask.height);
+      mctx.setTransform(MASK_SCALE, 0, 0, MASK_SCALE, 0, 0);
+      const contour = (grow: number) => {
+        mctx.beginPath();
+        OVAL.forEach((id, n) => {
+          const x = SX(id);
+          const y = SY(id);
+          const above = Math.max(0, Math.min(1, (eyeLine - y) / Math.max(1, eyeLine - SY(10))));
+          const fx = 1.06 + above * 0.1;
+          const fy = y < cy ? 1.04 + above * 0.42 : 1.06; // hairline above, jaw below
+          const px = cx + (x - cx) * fx * grow;
+          const py = cy + (y - cy) * fy * grow - above * faceH * 0.06;
+          if (n === 0) mctx.moveTo(px, py);
+          else mctx.lineTo(px, py);
         });
-        if (close) ctx.closePath();
+        mctx.closePath();
       };
-      const reveal = (from: number, to: number) => Math.max(0, Math.min(1, (ease - from) / (to - from)));
-
-      // Holographic mesh (faint) + scan band
-      if (tessellation) {
-        const meshA = 0.07 * reveal(0, 0.5) * presence;
-        const drawMesh = () => {
-          ctx.beginPath();
-          for (let i = 0; i < tessellation!.length; i += 2) {
-            const a = tessellation![i];
-            const b = tessellation![i + 1];
-            ctx.moveTo(SX(a), SY(a));
-            ctx.lineTo(SX(b), SY(b));
-          }
-          ctx.stroke();
-        };
-        ctx.lineWidth = 0.6 * u;
-        ctx.strokeStyle = CYAN(meshA);
-        drawMesh();
-        const top = SY(10) - 10;
-        const bottom = SY(152) + 10;
-        const band = top + (((t * 0.45) % 1) * (bottom - top + 120) - 60);
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, band - 22, W, 44);
-        ctx.clip();
-        ctx.strokeStyle = CYAN(0.32 * presence);
-        drawMesh();
-        ctx.restore();
+      for (const [grow, a] of [
+        [1.16, 0.1],
+        [1.12, 0.18],
+        [1.08, 0.3],
+        [1.04, 0.55],
+        [1.0, 1],
+      ] as const) {
+        contour(grow);
+        mctx.fillStyle = `rgba(0,0,0,${a})`;
+        mctx.fill();
       }
+      ctx.globalCompositeOperation = "destination-in";
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(mask, 0, 0, cw, ch);
+      ctx.globalCompositeOperation = "source-over";
 
-      const centre = { x: scx, y: scy };
-      // Faceplate edge: double line
+      // ─── Face-locked HUD ───
+      const reveal = Math.min(1, (now - lockAt) / 700) * presence;
+      const t = now / 1000;
+      const level = voiceLevel();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      const glowStroke = (w: number, a: number, color = CYAN) => {
+        ctx.lineWidth = w * 4;
+        ctx.strokeStyle = color(a * 0.12);
+        ctx.stroke();
+        ctx.lineWidth = w;
+        ctx.strokeStyle = color(a);
+        ctx.stroke();
+      };
+
+      const eyeW = (a: number, b: number) => Math.hypot(SX(b) - SX(a), SY(b) - SY(a));
+      const e1 = { x: SX(473), y: SY(473), w: eyeW(263, 362) };
+      const e2 = { x: SX(468), y: SY(468), w: eyeW(33, 133) };
+      const mainIsE1 = e1.x > e2.x; // viewer-right eye gets the full reticle
+      const main = mainIsE1 ? e1 : e2;
+      const other = mainIsE1 ? e2 : e1;
+      eyeA.update(main.x, main.y, main.w);
+      eyeB.update(other.x, other.y, other.w);
+
+      const R = eyeA.r * 1.05;
+      ctx.save();
+      ctx.translate(eyeA.x, eyeA.y);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, R * 0.42, Math.max(1, R * 0.42 * (1 - blink * 0.7)), 0, 0, Math.PI * 2);
+      glowStroke(1.4, 0.9 * reveal, WHITE);
+      for (let k = 0; k < 4; k++) {
+        const a0 = t * 0.9 + (k * Math.PI) / 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, R * 0.95, a0, a0 + 1.05);
+        glowStroke(1.6, 0.85 * reveal);
+      }
+      ctx.setLineDash([2, 5]);
+      ctx.beginPath();
+      ctx.arc(0, 0, R * 1.4, -t * 0.4, -t * 0.4 + Math.PI * 1.7);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = CYAN(0.55 * reveal);
+      ctx.stroke();
       ctx.setLineDash([]);
-      const plate = reveal(0.1, 0.7);
-      if (plate > 0) {
-        ctx.lineWidth = 1 * u;
-        ctx.strokeStyle = CYAN(0.35 * presence);
-        path(OVAL, true, { ...centre, f: 1.09 });
-        ctx.stroke();
-        const perim = faceH * s * 3.3;
-        ctx.lineWidth = 6 * u;
-        ctx.strokeStyle = CYAN(0.12 * presence);
-        ctx.setLineDash([perim * plate, perim]);
-        path(OVAL, true, { ...centre, f: 1.03 });
-        ctx.stroke();
-        ctx.lineWidth = 1.6 * u;
-        ctx.strokeStyle = WHITE(0.85 * presence);
-        ctx.setLineDash([perim * plate, perim]);
-        path(OVAL, true, { ...centre, f: 1.03 });
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      // Armour plates: crimson sides, gold forehead (translucent, so the face still reads)
-      const plates = reveal(0.25, 0.8) * presence;
-      if (plates > 0) {
-        path(SIDE_R, true);
-        ctx.fillStyle = CRIMSON(0.22 * plates);
-        ctx.fill();
-        path(SIDE_L, true);
-        ctx.fill();
-        const fg = ctx.createLinearGradient(0, SY(10), 0, SY(9));
-        fg.addColorStop(0, GOLD(0.26 * plates));
-        fg.addColorStop(1, GOLD(0.08 * plates));
-        path(FOREHEAD_PLATE, true);
-        ctx.fillStyle = fg;
-        ctx.fill();
-        ctx.lineWidth = 1 * u;
-        ctx.strokeStyle = GOLD(0.55 * plates);
-        ctx.stroke();
-        ctx.strokeStyle = CRIMSON(0.0);
-      }
-
-      // Seams
-      const seam = reveal(0.35, 0.85) * presence;
-      if (seam > 0) {
-        ctx.lineWidth = 1.2 * u;
-        ctx.strokeStyle = CYAN(0.7 * seam);
-        path(BROW);
-        ctx.stroke();
-        path(NOSE);
-        ctx.stroke();
-        // Forehead crest (V) + centre line
-        ctx.strokeStyle = GOLD(0.7 * seam);
-        ctx.beginPath();
-        ctx.moveTo(SX(67), SY(67));
-        ctx.lineTo(SX(151), SY(151));
-        ctx.lineTo(SX(297), SY(297));
-        ctx.moveTo(SX(10), SY(10));
-        ctx.lineTo(SX(9), SY(9));
-        ctx.stroke();
-        // Cheek seams: nose wing → cheekbone → jaw (curved)
-        ctx.strokeStyle = CYAN(0.6 * seam);
-        for (const [a, m, b] of [
-          [98, 123, 172],
-          [327, 352, 397],
-        ]) {
-          ctx.beginPath();
-          ctx.moveTo(SX(a), SY(a));
-          ctx.quadraticCurveTo(SX(m), SY(m), SX(b), SY(b));
-          ctx.stroke();
-        }
-        // Temple lines: outer eye corner → face side
-        for (const [a, b] of [
-          [33, 234],
-          [263, 454],
-        ]) {
-          ctx.beginPath();
-          ctx.moveTo(SX(a), SY(a));
-          ctx.lineTo(SX(b), SY(b));
-          ctx.stroke();
-        }
-        // Chin chevron
-        ctx.beginPath();
-        ctx.moveTo(SX(148), SY(148));
-        ctx.lineTo(SX(152), SY(152) - 6);
-        ctx.lineTo(SX(377), SY(377));
-        ctx.stroke();
-        // Mouth plate + grille (moves with your mouth)
-        const mcx = (SX(61) + SX(291)) / 2;
-        const mcy = (SY(0) + SY(17)) / 2;
-        ctx.strokeStyle = CYAN(0.75 * seam);
-        path(LIPS, true, { x: mcx, y: mcy, f: 1.35, fy: 1.6 });
-        ctx.stroke();
-        const mw = Math.abs(SX(291) - SX(61)) * 0.5;
-        const mh = Math.abs(SY(17) - SY(0)) * 0.8 + 3;
-        ctx.strokeStyle = CYAN(0.45 * seam);
-        ctx.beginPath();
-        for (const f of [-0.33, 0, 0.33]) {
-          const y = mcy + f * mh;
-          ctx.moveTo(mcx - mw * (1 - Math.abs(f) * 0.6), y);
-          ctx.lineTo(mcx + mw * (1 - Math.abs(f) * 0.6), y);
-        }
-        ctx.stroke();
-        // Bolts
-        ctx.fillStyle = WHITE(0.8 * seam);
-        for (const id of [234, 454, 172, 397]) {
-          ctx.beginPath();
-          ctx.arc(SX(id), SY(id), 2.2 * u, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      // Eye lenses — angular, glowing; they close when you blink.
-      const lens = reveal(0.6, 1) * presence;
-      if (lens > 0) {
-        const open = 1 - Math.min(1, blink * 1.4);
-        for (const eye of [EYE_R, EYE_L]) {
-          let ex = 0, ey = 0;
-          for (const id of eye) {
-            ex += SX(id);
-            ey += SY(id);
-          }
-          ex /= eye.length;
-          ey /= eye.length;
-          const outer = eye[0];
-          const ox = SX(outer) - ex;
-          const oy = SY(outer) - ey;
-          ctx.beginPath();
-          eye.forEach((id, n) => {
-            let dx = SX(id) - ex;
-            let dy = SY(id) - ey;
-            dx *= 1.45;
-            dy = dy * 1.9 * Math.max(0.12, open);
-            // Sweep the outer end up toward the temple for an angular lens.
-            const towardOuter = (dx * ox + dy * oy) / (ox * ox + oy * oy || 1);
-            if (towardOuter > 0) dy -= towardOuter * Math.abs(ox) * 0.35;
-            if (n === 0) ctx.moveTo(ex + dx, ey + dy);
-            else ctx.lineTo(ex + dx, ey + dy);
-          });
-          ctx.closePath();
-          const glow = ctx.createLinearGradient(ex - Math.abs(ox) * 1.5, ey, ex + Math.abs(ox) * 1.5, ey);
-          const pulse = speaking ? 0.12 * Math.sin(t * 18) : 0.04 * Math.sin(t * 2.4);
-          glow.addColorStop(0, WHITE((0.55 + pulse) * lens));
-          glow.addColorStop(0.5, `rgba(190, 240, 255, ${(0.78 + pulse) * lens})`);
-          glow.addColorStop(1, WHITE((0.55 + pulse) * lens));
-          ctx.fillStyle = glow;
-          ctx.fill();
-          ctx.lineWidth = 5 * u;
-          ctx.strokeStyle = CYAN(0.22 * lens);
-          ctx.stroke();
-          ctx.lineWidth = 1.2 * u;
-          ctx.strokeStyle = WHITE(0.95 * lens);
-          ctx.stroke();
-        }
-      }
-
-      // Outer HUD ring + readouts
-      const ring = reveal(0.2, 0.9) * presence;
-      if (ring > 0) {
-        const R = Math.min(faceH * s * 0.9, Math.min(zone.w, zone.h) / 2 - 38);
+      for (let k = 0; k < 4; k++) {
+        const a = Math.PI / 4 + (k * Math.PI) / 2;
+        const r0 = R * 1.62;
         ctx.save();
-        ctx.translate(scx, scy);
-        ctx.lineWidth = 1 * u;
-        ctx.strokeStyle = CYAN(0.28 * ring);
+        ctx.rotate(a);
         ctx.beginPath();
-        ctx.arc(0, 0, R, Math.PI * 1.08, Math.PI * 1.92);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(0, 0, R, Math.PI * 0.12, Math.PI * 0.88);
-        ctx.stroke();
-        ctx.strokeStyle = CYAN(0.55 * ring);
-        for (let a = -60; a <= 60; a += 10) {
-          const r1 = a % 30 === 0 ? R * 1.04 : R * 1.02;
-          const ang = ((a - 90) * Math.PI) / 180;
-          ctx.beginPath();
-          ctx.moveTo(Math.cos(ang) * R, Math.sin(ang) * R);
-          ctx.lineTo(Math.cos(ang) * r1, Math.sin(ang) * r1);
-          ctx.stroke();
-        }
-        // Yaw needle on the top arc
-        const yawAng = ((Math.max(-55, Math.min(55, yaw)) - 90) * Math.PI) / 180;
-        ctx.fillStyle = GOLD(0.9 * ring);
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(yawAng) * R * 0.97, Math.sin(yawAng) * R * 0.97);
-        ctx.lineTo(Math.cos(yawAng - 0.03) * R * 0.9, Math.sin(yawAng - 0.03) * R * 0.9);
-        ctx.lineTo(Math.cos(yawAng + 0.03) * R * 0.9, Math.sin(yawAng + 0.03) * R * 0.9);
-        ctx.fill();
-        // Rotating inner segment
-        ctx.strokeStyle = WHITE(0.5 * ring);
-        ctx.lineWidth = 1.6 * u;
-        ctx.beginPath();
-        ctx.arc(0, 0, R * 0.94, t * 0.5, t * 0.5 + 0.5);
-        ctx.stroke();
+        ctx.moveTo(r0, -R * 0.18);
+        ctx.lineTo(r0, 0);
+        ctx.lineTo(r0 - R * 0.18, 0);
+        glowStroke(1.3, 0.8 * reveal, WHITE);
         ctx.restore();
-
-        ctx.font = `500 ${10}px "JetBrains Mono", monospace`;
-        ctx.fillStyle = CYAN(0.85 * ring);
-        ctx.textAlign = "center";
-        ctx.fillText(hasTarget ? "FACE LOCK" : "SIGNAL LOST", scx, scy - R - 10);
-        ctx.fillStyle = CYAN(0.6 * ring);
-        ctx.fillText(`YAW ${fmt(yaw)}   PITCH ${fmt(pitch)}   ROLL ${fmt(roll)}`, scx, scy + R + 16);
       }
+      ctx.beginPath();
+      ctx.arc(0, 0, R * 1.18, Math.PI * 0.62, Math.PI * 0.86);
+      glowStroke(2, 0.85 * reveal, AMBER);
+      ctx.restore();
+
+      // Angular tech frame from the reticle out to a callout.
+      const fx0 = eyeA.x;
+      const fy0 = eyeA.y;
+      ctx.beginPath();
+      ctx.moveTo(fx0 - R * 0.6, fy0 - R * 2.1);
+      ctx.lineTo(fx0 + R * 1.9, fy0 - R * 2.1);
+      ctx.lineTo(fx0 + R * 2.6, fy0 - R * 1.4);
+      ctx.lineTo(fx0 + R * 2.6, fy0 + R * 0.2);
+      glowStroke(1.3, 0.7 * reveal, WHITE);
+      // Callout: right of the reticle if there's room before the glass panel, otherwise
+      // mirrored out from the other eye on the left.
+      ctx.font = `500 ${Math.round(Math.max(9, Math.min(12, R * 0.32)))}px "JetBrains Mono", monospace`;
+      const label2 = `YAW ${fmt(yaw)}  PIT ${fmt(pitch)}`;
+      const textW = Math.max(ctx.measureText(label2).width, ctx.measureText("TARGET LOCK").width);
+      const wide = cw > 700;
+      const rightLimit = cw * (wide ? 0.755 : 0.7) - textW - 12;
+      const leftLimit = cw * (wide ? 0.245 : 0.3) + textW + 12;
+      const drawCallout = (ox0: number, oy0: number, r0: number, dir: 1 | -1, limit: number) => {
+        const start = ox0 + dir * r0 * 1.62;
+        const lineEnd = dir > 0 ? Math.min(ox0 + r0 * 5.4, limit) : Math.max(ox0 - r0 * 5.4, limit);
+        if ((lineEnd - start) * dir < r0 * 0.7) return false;
+        const knee = start + dir * Math.min(r0 * 1.6, Math.abs(lineEnd - start) * 0.5);
+        ctx.beginPath();
+        ctx.moveTo(start, oy0);
+        ctx.lineTo(knee, oy0);
+        ctx.lineTo(knee + dir * r0 * 0.45, oy0 + r0 * 0.45);
+        ctx.lineTo(lineEnd, oy0 + r0 * 0.45);
+        glowStroke(1.2, 0.75 * reveal);
+        ctx.textAlign = dir > 0 ? "left" : "right";
+        const tx = lineEnd + dir * 8;
+        ctx.fillStyle = CYAN(0.9 * reveal);
+        ctx.fillText("TARGET LOCK", tx, oy0 + r0 * 0.45 - 4);
+        ctx.fillStyle = WHITE(0.7 * reveal);
+        ctx.fillText(label2, tx, oy0 + r0 * 0.45 + 12);
+        return true;
+      };
+      if (!drawCallout(fx0, fy0, R, 1, rightLimit) && !drawCallout(eyeB.x, eyeB.y, eyeB.r * 1.05, -1, leftLimit)) {
+        // No side room (face zoomed in): ride the top edge of the tech frame instead.
+        ctx.textAlign = "left";
+        ctx.fillStyle = CYAN(0.9 * reveal);
+        ctx.fillText("TARGET LOCK", fx0 - R * 0.6, fy0 - R * 2.1 - 22);
+        ctx.fillStyle = WHITE(0.7 * reveal);
+        ctx.fillText(label2, fx0 - R * 0.6, fy0 - R * 2.1 - 9);
+      }
+      ctx.strokeStyle = CYAN(0.6 * reveal);
+      ctx.lineWidth = 1;
+      for (let k = 0; k < 6; k++) {
+        const x = fx0 - R * 0.3 + k * R * 0.35;
+        ctx.beginPath();
+        ctx.moveTo(x, fy0 - R * 2.1);
+        ctx.lineTo(x, fy0 - R * 2.1 + (k % 2 ? 4 : 7));
+        ctx.stroke();
+      }
+
+      // Other eye: quiet ring + cross ticks.
+      ctx.beginPath();
+      ctx.arc(eyeB.x, eyeB.y, eyeB.r * 0.95, 0, Math.PI * 2);
+      glowStroke(1, 0.35 * reveal);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = CYAN(0.5 * reveal);
+      for (let k = 0; k < 4; k++) {
+        const a = (k * Math.PI) / 2;
+        ctx.beginPath();
+        ctx.moveTo(eyeB.x + Math.cos(a) * eyeB.r * 1.1, eyeB.y + Math.sin(a) * eyeB.r * 1.1);
+        ctx.lineTo(eyeB.x + Math.cos(a) * eyeB.r * 1.3, eyeB.y + Math.sin(a) * eyeB.r * 1.3);
+        ctx.stroke();
+      }
+
+      // Voice ring at the mouth corner (pulses with your voice / JARVIS) + cheek ring.
+      const corner = SX(61) < SX(291) ? 61 : 291;
+      mouthA.update(SX(corner), SY(corner), faceH * 0.075);
+      const vr = mouthA.r * (1 + level * 0.6 + jaw * 0.3);
+      ctx.beginPath();
+      ctx.arc(mouthA.x - mouthA.r * 0.4, mouthA.y, vr, 0, Math.PI * 2);
+      glowStroke(2.2, (0.45 + level * 0.5) * reveal);
+      ctx.beginPath();
+      ctx.arc(mouthA.x - mouthA.r * 0.4, mouthA.y, vr * 1.45, t * 1.4, t * 1.4 + Math.PI * 1.2);
+      glowStroke(1, 0.3 * reveal);
+      const cheekId = SX(123) < SX(352) ? 123 : 352;
+      cheekA.update(SX(cheekId), SY(cheekId), faceH * 0.05);
+      ctx.beginPath();
+      ctx.arc(cheekA.x, cheekA.y, cheekA.r, -t * 0.8, -t * 0.8 + Math.PI * 1.5);
+      glowStroke(1.4, 0.4 * reveal);
+
+      // Big angular frame arching around the reticle side of the face.
+      const sideId = SX(454) > SX(234) === mainIsE1 ? 454 : 234;
+      const dir = SX(sideId) > cx ? 1 : -1;
+      const top = SY(10) - faceH * 0.08;
+      const sideX = SX(sideId) + dir * faceH * 0.16;
+      ctx.beginPath();
+      ctx.moveTo(cx, top);
+      ctx.lineTo(sideX - dir * faceH * 0.12, top);
+      ctx.lineTo(sideX, top + faceH * 0.18);
+      ctx.lineTo(sideX, cy + faceH * 0.16);
+      ctx.lineTo(sideX - dir * faceH * 0.1, cy + faceH * 0.3);
+      glowStroke(1.2, 0.45 * reveal);
+
       ctx.globalAlpha = 1;
     };
     raf = requestAnimationFrame(draw);
     return () => {
       off();
-      ro.disconnect();
       cancelAnimationFrame(raf);
     };
-  }, [zoneRef]);
+  }, []);
 
   return <canvas ref={ref} className="face-visor" />;
 }

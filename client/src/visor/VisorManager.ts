@@ -300,8 +300,7 @@ export class VisorManager extends Emitter<{ face: FaceEvent | null }> {
       }
     } else if (sample && farAway(sample)) message = "MOVE CLOSER TO CAMERA";
     if (!sample && now - this.lastFaceAt > GAZE_LOST_MS && ui.phase === "tracking") message = "FACE LOST · LOOK AT THE CAMERA";
-    const hands = this.handsState();
-    if (!message && hands === "LOST") message = "HAND TRACKING LOST · VOICE STILL ACTIVE";
+    const hands = this.handsState(); // shown in the status panel; not worth a banner every time a hand drops
 
     // Discrete states immediately; continuous values throttled (avoids React work every frame).
     const patch = { face: faceState, gaze, hands, message } as const;

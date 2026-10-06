@@ -72,6 +72,8 @@ interface ArcStore {
     cameraError?: string;
     trackerReady: boolean;
     showFeed: boolean;
+    /** Live vision performance (camera fps, inference fps/ms, worker vs main, GPU vs CPU). */
+    perf: { camera: number; hands: number; face: number; handsMs: number; faceMs: number; handsWhere: string; faceWhere: string } | null;
   };
   location: LocationInfo | null;
   confirmFlash: { id: string; approved: boolean } | null;
@@ -92,7 +94,7 @@ export const useArc = create<ArcStore>(() => ({
   telemetry: null,
   notices: [],
   local: {
-    handsFree: prefs("handsFree", false),
+    handsFree: prefs("handsFree", true),
     mic: "off",
     speaking: false,
     trackerFps: 0,
@@ -102,6 +104,7 @@ export const useArc = create<ArcStore>(() => ({
     camera: "off",
     trackerReady: false,
     showFeed: prefs("showFeed", true),
+    perf: null,
   },
   location: null,
   confirmFlash: null,

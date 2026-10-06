@@ -106,6 +106,8 @@ export interface ArcState {
   mode: ArcMode;
   /** Device that shows the primary JARVIS response and speaks it. */
   primaryDevice: DeviceRole;
+  /** Device whose microphone listens for "JARVIS" hands-free. */
+  voiceInput: DeviceRole;
   vision: {
     activeSource: DeviceRole;
     routes: VisionRoute[];
