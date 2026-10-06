@@ -1,0 +1,11 @@
+node_modules/
+client/dist/
+.env
+.arc/
+# Downloaded by `npm run setup`
+client/public/models/hand_landmarker.task
+client/public/models/face_landmarker.task
+client/public/mediapipe/
+client/public/textures/
+client/public/geo/
+*.log

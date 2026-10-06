@@ -1,0 +1,45 @@
+import * as THREE from "three";
+import type { Builder, BuiltObject } from "./types";
+import { buildEarth, buildMars, buildMoon, buildSaturn, buildSolarSystem, buildSun } from "./space";
+import { buildAtom, buildBrain, buildDna, buildHeart } from "./science";
+import { buildCar, buildEngine } from "./machines";
+import { holoMesh } from "../holo";
+
+const primitive = (geometry: THREE.BufferGeometry, radius: number, edgeThreshold = 22): Builder => () => ({
+  content: holoMesh(geometry, undefined, edgeThreshold),
+  radius,
+  props: { wireframe: false },
+  setProperty(prop, value) {
+    if (prop !== "wireframe") return false;
+    this.content.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+      if (m && "wireframe" in m && m.type === "MeshStandardMaterial") m.wireframe = value;
+    });
+    return true;
+  },
+});
+
+/** Kind → builder. New objects are added here (and in shared/catalog.ts). */
+export const BUILDERS: Record<string, Builder> = {
+  earth: buildEarth,
+  moon: buildMoon,
+  mars: buildMars,
+  saturn: buildSaturn,
+  sun: buildSun,
+  solar_system: buildSolarSystem,
+  atom: buildAtom,
+  dna: buildDna,
+  heart: buildHeart,
+  brain: buildBrain,
+  car: buildCar,
+  engine: buildEngine,
+  cube: primitive(new THREE.BoxGeometry(1.3, 1.3, 1.3), 1.15),
+  sphere: primitive(new THREE.IcosahedronGeometry(0.95, 4), 0.95, 60),
+  torus: primitive(new THREE.TorusKnotGeometry(0.62, 0.2, 220, 28), 0.95, 60),
+  pyramid: primitive(new THREE.ConeGeometry(0.95, 1.4, 4), 1),
+};
+
+export function build(kind: string): BuiltObject | null {
+  const builder = BUILDERS[kind];
+  return builder ? builder() : null;
+}
