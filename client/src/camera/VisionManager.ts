@@ -4,7 +4,7 @@ import { useArc, setLocal, notify, dismissCode } from "../core/store";
 import { Emitter } from "../core/emitter";
 import { CameraSource } from "./CameraSource";
 import type { GestureManager } from "../gestures/GestureManager";
-import { VisionEngine, type ModelHandle } from "./VisionEngine";
+import { VisionEngine, type ModelHandle, type PersonMask } from "./VisionEngine";
 import type { FaceFrame } from "../visor/FaceTracker";
 
 const RELAY_INTERVAL_MS = 33; // ~30 fps of landmarks — a few KB/s instead of a video stream
@@ -34,7 +34,7 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
   private faceBusy = false;
   private faceListeners = new Set<(face: FaceFrame | null, now: number) => void>();
   /** The exact frame the latest face landmarks belong to (worker path) — drawn by the visor so the HUD never drifts. */
-  latestFrame: { bitmap: ImageBitmap; at: number } | null = null;
+  latestFrame: { bitmap: ImageBitmap; at: number; mask: PersonMask | null } | null = null;
   private stats = { camera: 0, hands: 0, face: 0, handsMs: 0, faceMs: 0, since: performance.now() };
   private capturing = false;
   private starting = false;
@@ -205,7 +205,7 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
             if (!this.faceWanted || !this.capturing) r.bitmap.close();
             else {
               this.latestFrame?.bitmap.close();
-              this.latestFrame = { bitmap: r.bitmap, at: performance.now() };
+              this.latestFrame = { bitmap: r.bitmap, at: performance.now(), mask: r.mask ?? null };
             }
           }
           if (this.capturing) for (const l of this.faceListeners) l(r.face, now);

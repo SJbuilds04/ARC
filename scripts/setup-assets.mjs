@@ -19,6 +19,11 @@ const downloads = [
     url: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
     out: "models/face_landmarker.task",
   },
+  {
+    // VISOR: person segmentation — clean cut-out of face, hair and shoulders.
+    url: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
+    out: "models/selfie_segmenter.tflite",
+  },
   { url: `${THREE_TEX}/earth_atmos_2048.jpg`, out: "textures/earth_day.jpg" },
   { url: `${THREE_TEX}/earth_normal_2048.jpg`, out: "textures/earth_normal.jpg" },
   { url: `${THREE_TEX}/earth_specular_2048.jpg`, out: "textures/earth_specular.jpg" },

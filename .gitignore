@@ -5,6 +5,7 @@ client/dist/
 # Downloaded by `npm run setup`
 client/public/models/hand_landmarker.task
 client/public/models/face_landmarker.task
+client/public/models/selfie_segmenter.tflite
 client/public/mediapipe/
 client/public/textures/
 client/public/geo/

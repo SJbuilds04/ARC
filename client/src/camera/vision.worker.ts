@@ -5,10 +5,13 @@
  * Frames arrive as transferable ImageBitmaps; the face worker sends its bitmap
  * back so the visor can draw exactly the frame the landmarks belong to.
  */
-import { FaceLandmarker, FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
+import { FaceLandmarker, FilesetResolver, HandLandmarker, ImageSegmenter } from "@mediapipe/tasks-vision";
 
 let hands: HandLandmarker | null = null;
 let face: FaceLandmarker | null = null;
+/** Person segmentation, run on the same frame as the face (visor cut-out). Optional. */
+let segmenter: ImageSegmenter | null = null;
+let segFailures = 0;
 let lastTs = 0;
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 
@@ -37,13 +40,28 @@ async function load(model: "hands" | "face", base: string, assets: string): Prom
       });
     }
   };
+  let delegate: "GPU" | "CPU";
   try {
     await create("GPU");
-    return "GPU";
+    delegate = "GPU";
   } catch {
     await create("CPU");
-    return "CPU";
+    delegate = "CPU";
   }
+  if (model === "face") {
+    try {
+      segmenter = await ImageSegmenter.createFromOptions(fs, {
+        baseOptions: { modelAssetPath: `${assets}/selfie_segmenter.tflite`, delegate },
+        runningMode: "VIDEO",
+        outputConfidenceMasks: true,
+        outputCategoryMask: false,
+      });
+    } catch (err) {
+      segmenter = null; // the visor falls back to a landmark contour
+      console.warn("[vision] segmenter unavailable:", (err as Error).message);
+    }
+  }
+  return delegate;
 }
 
 scope.onmessage = async (e: MessageEvent) => {
@@ -98,6 +116,26 @@ scope.onmessage = async (e: MessageEvent) => {
         out.face = { points: arr, blinkLeft: shape("eyeBlinkLeft"), blinkRight: shape("eyeBlinkRight"), jawOpen: shape("jawOpen"), matrix: r.facialTransformationMatrixes[0]?.data ?? null };
         transfer.push(arr.buffer);
       } else out.face = null;
+      if (segmenter) {
+        // Person mask for the same frame, quantised to bytes (small to transfer, exact to the frame).
+        // A segmentation failure never costs the face result or the frame.
+        try {
+          const seg = segmenter.segmentForVideo(bitmap, ts);
+          const masks = seg.confidenceMasks;
+          const mk = masks?.[masks.length - 1];
+          if (mk) {
+            const f = mk.getAsFloat32Array();
+            const bytes = new Uint8Array(f.length);
+            for (let j = 0; j < f.length; j++) bytes[j] = f[j] * 255;
+            out.mask = { data: bytes, w: mk.width, h: mk.height };
+            transfer.push(bytes.buffer);
+          }
+          seg.close();
+        } catch (err) {
+          out.segError = (err as Error).message || String(err);
+          if (++segFailures >= 3) segmenter = null;
+        }
+      }
       if (m.returnBitmap) {
         out.bitmap = bitmap;
         transfer.push(bitmap);

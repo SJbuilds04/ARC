@@ -13,8 +13,16 @@ export interface ModelHandle {
   load(): Promise<void>;
 }
 
+/** Person-segmentation mask (0..255 confidence) for the same frame as the face. */
+export interface PersonMask {
+  data: Uint8Array;
+  w: number;
+  h: number;
+}
+
 export interface FaceResult {
   face: FaceFrame | null;
+  mask?: PersonMask | null;
   /** The exact frame the landmarks belong to (worker path), for drift-free drawing. */
   bitmap: ImageBitmap | null;
   ms: number;
@@ -89,7 +97,12 @@ class WorkerRunner<R> implements Runner<R> {
   }
 }
 
+let segWarned = false;
 function decodeFace(m: Record<string, unknown>, aspect: number): FaceResult {
+  if (m.segError && !segWarned) {
+    segWarned = true;
+    console.warn("[vision] person segmentation failed:", m.segError);
+  }
   const f = m.face as { points: Float32Array; blinkLeft: number; blinkRight: number; jawOpen: number; matrix: number[] | null } | null | undefined;
   let face: FaceFrame | null = null;
   if (f) {
@@ -98,7 +111,7 @@ function decodeFace(m: Record<string, unknown>, aspect: number): FaceResult {
     for (let i = 0; i < points.length; i++) points[i] = { x: a[i * 3], y: a[i * 3 + 1], z: a[i * 3 + 2] };
     face = { t: performance.now(), points, blinkLeft: f.blinkLeft, blinkRight: f.blinkRight, jawOpen: f.jawOpen, matrix: f.matrix, aspect };
   }
-  return { face, bitmap: (m.bitmap as ImageBitmap | undefined) ?? null, ms: (m.ms as number) ?? 0 };
+  return { face, mask: (m.mask as PersonMask | undefined) ?? null, bitmap: (m.bitmap as ImageBitmap | undefined) ?? null, ms: (m.ms as number) ?? 0 };
 }
 
 class MainHands implements Runner<Hand[]> {
