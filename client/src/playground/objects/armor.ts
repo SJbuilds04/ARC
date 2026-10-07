@@ -2,99 +2,58 @@ import * as THREE from "three";
 import type { BuiltObject, ModelAction } from "./types";
 import { at, centerOf, part, type PartAnchor } from "./parts";
 import { holoGain } from "../holo";
+import { anatomy, HEROIC, type Proportions } from "./anatomy";
+import {
+  type Surface,
+  type P2,
+  type PlateOpts,
+  TAU,
+  plateGeometry,
+  capGeometry,
+  skinGeometry,
+  rounded,
+  roundChain,
+  symmetric,
+  mirror,
+  ellipse,
+  arc,
+  rect,
+  grow,
+  flakeNormalMap,
+  mechNormalMap,
+  hexNormalMap,
+  hudTexture,
+} from "./suitkit";
 
 /**
- * Procedural armoured suits (ARC's own interpretations, not official assets): one articulated
- * humanoid rig, styled per suit. Interactive — faceplate, repulsors, flight, opening the armour,
- * paint schemes — and every moving piece animates toward its target in update().
+ * Iron Man armours (ARC's own procedural recreations, not official assets).
+ *
+ * Built on the shared anatomy: every armour plate is cut on the body surfaces with real
+ * thickness, bevelled edges and dark panel gaps; candy-red clear-coat paint with metal flake,
+ * gold-titanium, a machined arc reactor, glowing eyes and repulsors. Interactive — faceplate,
+ * repulsors, flight (thrusters, back flaps), opening the armour, paint schemes.
  */
 
-const TAU = Math.PI * 2;
-type Role = "primary" | "secondary" | "dark" | "glow" | "under" | "lens";
+type Role = "primary" | "secondary" | "under" | "dark" | "steel" | "copper" | "glow";
 
-interface Scheme {
+export interface Scheme {
   name: string;
   primary: number;
   secondary: number;
 }
 
 interface SuitStyle {
-  kind: "iron" | "hulk" | "spider" | "ironspider";
   schemes: Scheme[];
-  /** Which body regions take the secondary colour. */
+  /** Regions finished in the secondary (gold-titanium) colour. */
   gold: Set<string>;
   glow: number;
   reactor: "round" | "triangle" | "hex";
-  bulk: number; // torso width / limb thickness multiplier
-  slim?: boolean;
+  p: Proportions;
+  nano?: boolean;
+  hulk?: boolean;
 }
 
-const lathe = (pts: [number, number][], seg = 36, phiStart = 0, phiLen = TAU) =>
-  new THREE.LatheGeometry(
-    pts.map(([r, y]) => new THREE.Vector2(r, y)),
-    seg,
-    phiStart,
-    phiLen,
-  );
-
-/** Spider-suit web pattern (meridians + rings in lathe UV space). */
-function webTexture(base: string, line: string): THREE.CanvasTexture {
-  const c = document.createElement("canvas");
-  c.width = c.height = 512;
-  const g = c.getContext("2d")!;
-  g.fillStyle = base;
-  g.fillRect(0, 0, 512, 512);
-  g.strokeStyle = line;
-  g.lineWidth = 2.2;
-  for (let x = 0; x <= 512; x += 32) {
-    g.beginPath();
-    g.moveTo(x, 0);
-    g.lineTo(x, 512);
-    g.stroke();
-  }
-  for (let y = 18; y < 512; y += 40) {
-    g.beginPath();
-    for (let x = 0; x <= 512; x += 32) {
-      const yy = y + 7 * Math.sin((x / 32) * Math.PI);
-      if (x === 0) g.moveTo(x, yy);
-      else g.quadraticCurveTo(x - 16, yy + 9, x, yy);
-    }
-    g.stroke();
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 4;
-  return t;
-}
-
-/** Spider emblem outline (flat, extruded a hair). */
-function spiderEmblem(size: number, mat: THREE.Material): THREE.Mesh {
-  const s = new THREE.Shape();
-  s.ellipse(0, 0.25, 0.16, 0.22, 0, TAU);
-  const body = new THREE.Shape();
-  body.absellipse(0, -0.25, 0.2, 0.35, 0, TAU, false, 0);
-  const group: THREE.Shape[] = [s, body];
-  for (const side of [-1, 1]) {
-    for (let i = 0; i < 4; i++) {
-      const leg = new THREE.Shape();
-      const y0 = 0.15 - i * 0.18;
-      const kx = side * (0.55 + (i % 2) * 0.1);
-      const ky = y0 + (i < 2 ? 0.35 : -0.3);
-      leg.moveTo(side * 0.1, y0);
-      leg.lineTo(kx, ky);
-      leg.lineTo(side * (0.9 - i * 0.05), y0 + (i < 2 ? 0.05 : -0.6));
-      leg.lineTo(kx + side * 0.05, ky + 0.06);
-      leg.lineTo(side * 0.12, y0 + 0.06);
-      group.push(leg);
-    }
-  }
-  const geo = new THREE.ExtrudeGeometry(group, { depth: 0.02, bevelEnabled: false });
-  geo.scale(size, size, size);
-  return new THREE.Mesh(geo, mat);
-}
-
-interface Built {
+export interface Built {
   content: THREE.Group;
   parts: PartAnchor[];
   actions: ModelAction[];
@@ -103,332 +62,652 @@ interface Built {
   explode(a: number): void;
 }
 
-function buildRig(style: SuitStyle): Built {
-  const B = style.bulk;
-  const spider = style.kind === "spider" || style.kind === "ironspider";
-  const scheme0 = style.schemes[0];
+const Z = new THREE.Vector3(0, 0, 1);
+const DIRECT: Record<string, Role> = { dark: "dark", steel: "steel", under: "under", copper: "copper", glow: "glow", primary: "primary", secondary: "secondary" };
+const DARK_REGIONS = new Set(["belt", "spine", "waist"]);
+const ease = (x: number) => x * x * (3 - 2 * x);
 
-  // ─── materials ───
-  const cloth = style.kind === "spider";
-  const webRed = cloth ? webTexture("#b3121c", "rgba(40,4,8,0.85)") : null;
-  const mats: Record<Role, THREE.Material> = {
-    primary: cloth
-      ? new THREE.MeshStandardMaterial({ color: 0xffffff, map: webRed, roughness: 0.62, metalness: 0.05 })
-      : new THREE.MeshPhysicalMaterial({ color: scheme0.primary, metalness: 0.62, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.12 }),
-    secondary: cloth
-      ? new THREE.MeshStandardMaterial({ color: scheme0.secondary, roughness: 0.7, metalness: 0.05 })
-      : new THREE.MeshPhysicalMaterial({ color: scheme0.secondary, metalness: 1, roughness: 0.24, clearcoat: 0.6, clearcoatRoughness: 0.2 }),
-    dark: new THREE.MeshStandardMaterial({ color: 0x23272d, metalness: 0.85, roughness: 0.42 }),
-    under: new THREE.MeshStandardMaterial({ color: 0x15181c, metalness: 0.5, roughness: 0.7 }),
+function materials(style: SuitStyle): Record<Role, THREE.Material> {
+  const s0 = style.schemes[0];
+  const flake = flakeNormalMap();
+  const nano = style.nano ? hexNormalMap() : null;
+  return {
+    primary: new THREE.MeshPhysicalMaterial({
+      color: s0.primary,
+      metalness: 0.38,
+      roughness: 0.42,
+      clearcoat: 1,
+      clearcoatRoughness: 0.07,
+      normalMap: nano ?? flake,
+      normalScale: new THREE.Vector2(nano ? 0.22 : 0.16, nano ? 0.22 : 0.16),
+      side: THREE.DoubleSide,
+    }),
+    secondary: new THREE.MeshPhysicalMaterial({
+      color: s0.secondary,
+      metalness: 1,
+      roughness: 0.26,
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.12,
+      normalMap: nano ?? flake,
+      normalScale: new THREE.Vector2(0.08, 0.08),
+      side: THREE.DoubleSide,
+    }),
+    under: new THREE.MeshStandardMaterial({ color: 0x15181c, metalness: 0.82, roughness: 0.5, normalMap: mechNormalMap(), normalScale: new THREE.Vector2(0.75, 0.75) }),
+    dark: new THREE.MeshStandardMaterial({ color: 0x262a30, metalness: 0.92, roughness: 0.32, side: THREE.DoubleSide }),
+    steel: new THREE.MeshStandardMaterial({ color: 0xb9c1ca, metalness: 1, roughness: 0.2, side: THREE.DoubleSide }),
+    copper: new THREE.MeshStandardMaterial({ color: 0xc27a45, metalness: 1, roughness: 0.3 }),
     glow: new THREE.MeshBasicMaterial({ color: style.glow, toneMapped: false }),
-    lens: new THREE.MeshStandardMaterial({ color: 0xf2f6fa, emissive: 0x8a9aa8, emissiveIntensity: 0.35, roughness: 0.2, metalness: 0.3 }),
   };
+}
+
+/** The chest arc reactor: machined housing, copper coils / new-element core, glass lens. */
+function chestReactor(kind: SuitStyle["reactor"], m: Record<Role, THREE.Material>, dimGlow: THREE.Material): { group: THREE.Group; light: THREE.PointLight } {
+  const g = new THREE.Group();
+  const hex = kind === "hex";
+  const seg = hex ? 6 : 72;
+  const prof: [number, number][] = [
+    [0.039, -0.016],
+    [0.043, -0.004],
+    [0.046, 0.003],
+    [0.051, 0.0062],
+    [0.0562, 0.006],
+    [0.0596, 0.0026],
+    [0.0604, -0.006],
+    [0.058, -0.016],
+  ];
+  const housing = new THREE.Mesh(new THREE.LatheGeometry(prof.map(([r, z]) => new THREE.Vector2(r, z)), seg, hex ? Math.PI / 6 : 0), m.steel);
+  housing.rotation.x = Math.PI / 2;
+  g.add(housing);
+  const well = new THREE.Mesh(new THREE.CylinderGeometry(0.0405, 0.0405, 0.016, seg, 1, true, hex ? Math.PI / 6 : 0), m.dark);
+  well.rotation.x = Math.PI / 2;
+  well.position.z = -0.008;
+  g.add(well);
+  const back = new THREE.Mesh(new THREE.CircleGeometry(0.041, seg), dimGlow);
+  back.position.z = -0.0155;
+  g.add(back);
+  if (kind === "round") {
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * TAU;
+      const coil = new THREE.Mesh(new THREE.BoxGeometry(0.0152, 0.019, 0.008), m.copper);
+      coil.position.set(Math.cos(a) * 0.0302, Math.sin(a) * 0.0302, -0.0085);
+      coil.rotation.z = a - Math.PI / 2;
+      g.add(coil);
+      const spacer = new THREE.Mesh(new THREE.BoxGeometry(0.0016, 0.02, 0.009), m.dark);
+      const b = a + Math.PI / 10;
+      spacer.position.set(Math.cos(b) * 0.0302, Math.sin(b) * 0.0302, -0.0085);
+      spacer.rotation.z = b - Math.PI / 2;
+      g.add(spacer);
+    }
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0195, 0.0028, 10, 48), m.steel);
+    ring.position.z = -0.004;
+    g.add(ring);
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.0145, 0.0145, 0.008, 40), m.glow);
+    core.rotation.x = Math.PI / 2;
+    core.position.z = -0.006;
+    g.add(core);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.0062, 0.007, 0.004, 24), m.steel);
+    hub.rotation.x = Math.PI / 2;
+    hub.position.z = -0.0015;
+    g.add(hub);
+  } else if (kind === "triangle") {
+    const tri = (R: number, rr: number) => {
+      const pts = [-90, 30, 150].map((d) => new THREE.Vector2(Math.cos((d * Math.PI) / 180) * R, Math.sin((d * Math.PI) / 180) * R));
+      const s = new THREE.Shape();
+      for (let i = 0; i < 3; i++) {
+        const p = pts[i];
+        const a = pts[(i + 2) % 3];
+        const b = pts[(i + 1) % 3];
+        const s0 = p.clone().lerp(a, rr);
+        const e0 = p.clone().lerp(b, rr);
+        if (i === 0) s.moveTo(s0.x, s0.y);
+        else s.lineTo(s0.x, s0.y);
+        s.quadraticCurveTo(p.x, p.y, e0.x, e0.y);
+      }
+      s.closePath();
+      return s;
+    };
+    const glowTri = tri(0.034, 0.22);
+    glowTri.holes.push(new THREE.Path(tri(0.018, 0.25).getPoints(6)));
+    const core = new THREE.Mesh(new THREE.ExtrudeGeometry(glowTri, { depth: 0.006, bevelEnabled: true, bevelSize: 0.001, bevelThickness: 0.001, bevelSegments: 2, curveSegments: 8 }), m.glow);
+    core.position.z = -0.012;
+    g.add(core);
+    const frame = tri(0.0385, 0.2);
+    frame.holes.push(new THREE.Path(tri(0.0345, 0.22).getPoints(8)));
+    const fr = new THREE.Mesh(new THREE.ExtrudeGeometry(frame, { depth: 0.008, bevelEnabled: false, curveSegments: 8 }), m.steel);
+    fr.position.z = -0.012;
+    g.add(fr);
+    for (let i = 0; i < 30; i++) {
+      const a = (i / 30) * TAU;
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.0016, 0.006, 0.006), m.dark);
+      fin.position.set(Math.cos(a) * 0.0385, Math.sin(a) * 0.0385, -0.009);
+      fin.rotation.z = a - Math.PI / 2;
+      g.add(fin);
+    }
+  } else {
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU + Math.PI / 6;
+      const s = new THREE.Shape();
+      const w0 = 0.007;
+      const w1 = 0.016;
+      s.moveTo(0.019, -w0);
+      s.lineTo(0.035, -w1);
+      s.lineTo(0.035, w1);
+      s.lineTo(0.019, w0);
+      s.closePath();
+      const blade = new THREE.Mesh(new THREE.ExtrudeGeometry(s, { depth: 0.005, bevelEnabled: false }), m.dark);
+      blade.rotation.z = a;
+      blade.position.z = -0.01;
+      g.add(blade);
+    }
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0165, 0.0022, 8, 6), m.steel);
+    ring.rotation.z = Math.PI / 6;
+    ring.position.z = -0.005;
+    g.add(ring);
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.007, 6, 1, false, Math.PI / 6), m.glow);
+    core.rotation.x = Math.PI / 2;
+    core.position.z = -0.006;
+    g.add(core);
+  }
+  const light = new THREE.PointLight(0xbfefff, 0.5, 0.7, 2);
+  light.position.z = 0.09;
+  g.add(light);
+  return { group: g, light };
+}
+
+/** Palm repulsor: steel ring, glowing emitter, grille bars. Faces +z. */
+function repulsor(m: Record<Role, THREE.Material>, scale: number): THREE.Group {
+  const g = new THREE.Group();
+  g.scale.setScalar(scale);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0165, 0.0026, 10, 40), m.steel);
+  g.add(ring);
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.0148, 40), m.glow);
+  disc.position.z = -0.0012;
+  g.add(disc);
+  for (let i = -1; i <= 1; i++) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.0011, 0.0012), m.dark);
+    bar.position.set(0, i * 0.0058, 0.0004);
+    g.add(bar);
+  }
+  return g;
+}
+
+/** Thruster exhaust: an additive cone, bright at the nozzle, flickering. */
+function exhaust(len: number, r: number, color: number): { mesh: THREE.Mesh; mat: THREE.ShaderMaterial } {
+  const geo = new THREE.ConeGeometry(r, len, 24, 1, true);
+  geo.rotateX(Math.PI);
+  geo.translate(0, -len / 2, 0);
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(color) }, uGain: { value: 0 }, uTime: { value: 0 } },
+    vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uGain; uniform float uTime; varying vec2 vUv;
+      void main(){
+        float a = pow(1.0 - vUv.y, 1.7) * (0.8 + 0.2 * sin(uTime * 55.0 + vUv.y * 24.0));
+        gl_FragColor = vec4(uColor * a * uGain * 2.2, a * uGain);
+      }`,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.userData.noPick = true;
+  mesh.userData.keepMaterial = true;
+  mesh.visible = false;
+  return { mesh, mat };
+}
+
+interface PlateRec {
+  obj: THREE.Object3D;
+  home: THREE.Vector3;
+  dir: THREE.Vector3;
+  k: number;
+}
+
+interface Arm {
+  s: number;
+  sh: THREE.Group;
+  el: THREE.Group;
+  wr: THREE.Group;
+  home: THREE.Vector3;
+  joints: { g: THREE.Group; base: number }[];
+  thumb: THREE.Group;
+}
+
+interface Leg {
+  s: number;
+  hip: THREE.Group;
+  kn: THREE.Group;
+  ank: THREE.Group;
+  home: THREE.Vector3;
+}
+
+function buildIronSuit(style: SuitStyle): Built {
+  const an = anatomy(style.p);
+  const J = an.j;
+  const pk = style.hulk ? 1.5 : 1;
+  const mats = materials(style);
   const glowMat = mats.glow as THREE.MeshBasicMaterial;
   const glowBase = new THREE.Color(style.glow);
-  const mesh = (geo: THREE.BufferGeometry, role: Role, parent: THREE.Object3D) => {
-    const m = new THREE.Mesh(geo, mats[role]);
-    m.castShadow = role !== "glow";
-    m.receiveShadow = role !== "glow";
+  const roleOf = (region: string): Role => DIRECT[region] ?? (style.gold.has(region) ? "secondary" : DARK_REGIONS.has(region) ? "dark" : "primary");
+
+  const content = new THREE.Group();
+  const body = new THREE.Group();
+  content.add(body);
+  const plates: PlateRec[] = [];
+  const P: PlateOpts = { thickness: 0.0045 * pk, base: 0.0025 * pk, gap: 0.0013 * pk, bevel: 0.0011 * pk, maxEdge: 0.012 };
+  const SMALL: PlateOpts = { thickness: 0.0022, base: 0.0012, gap: 0.0007, bevel: 0.0008, maxEdge: 0.006 };
+  const TINY: PlateOpts = { thickness: 0.0016, base: 0.0009, gap: 0.0006, bevel: 0.0006, maxEdge: 0.005 };
+  /** Stacked detail panel on top of a plate. */
+  const onTop = (o: PlateOpts, extra = 0.0024): PlateOpts => ({ ...o, base: (o.base ?? 0) + (o.thickness ?? 0) - 0.0004, thickness: extra * pk, bevel: Math.min(o.bevel ?? 0.0015, extra * pk * 0.7) });
+
+  const plate = (surf: Surface, parent: THREE.Object3D, outline: P2[], region: string, o: PlateOpts = P, k = 1): THREE.Mesh => {
+    const { geometry, normal } = plateGeometry(surf, outline, o);
+    const m = new THREE.Mesh(geometry, mats[roleOf(region)]);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    m.userData.region = region;
+    parent.add(m);
+    plates.push({ obj: m, home: m.position.clone(), dir: normal, k });
+    return m;
+  };
+  const skin = (surf: Surface, parent: THREE.Object3D, o: Parameters<typeof skinGeometry>[1] = {}, role: Role = "under"): THREE.Mesh => {
+    const m = new THREE.Mesh(skinGeometry(surf, o), mats[role]);
+    m.castShadow = true;
+    m.receiveShadow = true;
     parent.add(m);
     return m;
   };
-  const roleOf = (region: string): Role => (style.gold.has(region) ? "secondary" : "primary");
-
-  const content = new THREE.Group();
-  const body = new THREE.Group(); // lifts in flight mode
-  content.add(body);
-  const shells: { obj: THREE.Object3D; home: THREE.Vector3; out: THREE.Vector3 }[] = [];
-  const shell = (obj: THREE.Object3D, out: [number, number, number]) => shells.push({ obj, home: obj.position.clone(), out: new THREE.Vector3(...out) });
+  const both = (fn: (M: (pts: P2[]) => P2[], side: number) => void) => {
+    fn((p) => p, 1);
+    fn(mirror, -1);
+  };
 
   // ─── torso ───
-  const torso = new THREE.Group();
-  body.add(torso);
-  const torsoPts: [number, number][] = [[0.001, 0.93], [0.13, 0.94], [0.145, 1.01], [0.138, 1.1], [0.152, 1.2], [0.198, 1.31], [0.212, 1.39], [0.198, 1.46], [0.13, 1.5], [0.05, 1.52]];
-  const tx = (spider ? 1.06 : 1.22) * B;
-  const tz = (spider ? 0.64 : 0.74) * (style.kind === "hulk" ? 1.35 : 1);
-  const back = mesh(lathe(torsoPts, 44), cloth ? "primary" : roleOf("torso"), torso);
-  back.scale.set(tx, 1, tz);
-  // inner undersuit (visible when the armour opens)
-  if (!spider) mesh(lathe(torsoPts.map(([r, y]) => [r * 0.93, y]), 32), "under", torso).scale.set(tx, 1, tz);
-  // front chest plate (opens forward)
-  const chestPlate = new THREE.Group();
-  torso.add(chestPlate);
-  if (!cloth) {
-    const cp = mesh(lathe(torsoPts.slice(3, 9).map(([r, y]) => [r * 1.03, y]), 40, -1.15, 2.3), roleOf("chest"), chestPlate);
-    cp.scale.set(tx, 1, tz);
-    shell(chestPlate, [0, 0.04, 0.22]);
-    // abdominal bands
-    for (let i = 0; i < 3; i++) {
-      const y0 = 0.97 + i * 0.065;
-      const band = mesh(lathe([[0.15, y0], [0.153, y0 + 0.028], [0.148, y0 + 0.05]], 36, -1.3, 2.6), roleOf("abs"), torso);
-      band.scale.set(tx * 1.02, 1, tz * 1.05);
-    }
-    // seams
-    for (const y of [1.2, 1.46]) {
-      const seam = new THREE.Mesh(new THREE.TorusGeometry(y === 1.2 ? 0.155 : 0.2, 0.0035, 6, 64), mats.dark);
-      seam.rotation.x = Math.PI / 2;
-      seam.position.y = y;
-      seam.scale.set(tx, tz, 1);
-      torso.add(seam);
-    }
-  } else {
-    // spider suit: blue sides/abdomen
-    const abs = mesh(lathe(torsoPts.slice(0, 5).map(([r, y]) => [r * 1.01, y]), 36), "secondary", torso);
-    abs.scale.set(tx, 1, tz);
-  }
-  // pelvis
-  const pelvis = mesh(lathe([[0.001, 0.84], [0.12, 0.85], [0.15, 0.9], [0.148, 0.97]], 36), spider ? "secondary" : roleOf("pelvis"), torso);
-  pelvis.scale.set(tx * 0.95, 1, tz * 1.05);
+  const T = an.torso;
+  const torsoG = new THREE.Group();
+  torsoG.position.y = J.torsoY;
+  body.add(torsoG);
+  const chestG = new THREE.Group();
+  torsoG.add(chestG);
+  skin(T, torsoG, { segU: 72, segV: 36 });
+  const tR = J.reactorT;
+  const reactorScale = style.hulk ? 1.3 : 1;
+  const RR = 0.0605 * reactorScale;
+  const rth = (RR + 0.0075) / T.r(0, tR);
+  const rtt = (RR + 0.0075) / T.length;
+  const flaps: { g: THREE.Group; axis: THREE.Vector3; sign: number }[] = [];
+  both((M, side) => {
+    // pectoral plate, cut round the reactor
+    const pec = roundChain([[0.04, 0.8], [0.32, 0.838], [0.64, 0.858], [0.93, 0.838], [1.13, 0.79], [1.25, 0.71], [1.24, 0.62], [1.1, 0.565], [0.82, 0.528], [0.52, 0.52], [0.24, 0.538]], 0.3).concat(
+      arc(0, tR, rth, rtt, Math.PI - 0.33, 0.36, 18),
+    );
+    plate(T, chestG, M(pec), "chest");
+    // raised inner pec panel
+    plate(T, chestG, M(rounded([[0.36, 0.6], [0.86, 0.585], [1.06, 0.66], [0.98, 0.79], [0.62, 0.815], [0.38, 0.77]], 0.3)), "chest", onTop(P, 0.0026));
+    // abdominals (3 rows)
+    plate(T, torsoG, M(rounded([[0.015, 0.42], [0.53, 0.42], [0.53, 0.52], [0.24, 0.538], [0.163, 0.556], [0.015, 0.551]], [0.15, 0.15, 0, 0, 0, 0.15])), "abs");
+    plate(T, torsoG, M(rounded(rect(0.015, 0.53, 0.305, 0.42), 0.12)), "abs");
+    plate(T, torsoG, M(rounded([[0.015, 0.19], [0.5, 0.19], [0.53, 0.305], [0.015, 0.305]], 0.14)), "abs");
+    plate(T, torsoG, M(rounded([[0.015, 0.122], [0.46, 0.122], [0.5, 0.19], [0.015, 0.19]], [0.1, 0.2, 0, 0.1])), "abs");
+    // obliques
+    plate(T, torsoG, M([[0.53, 0.42], [1.3, 0.46], [1.3, 0.62], [1.24, 0.62], [1.1, 0.565], [0.82, 0.528], [0.53, 0.52]]), "sides");
+    plate(T, torsoG, M([[0.53, 0.305], [1.3, 0.335], [1.3, 0.46], [0.53, 0.42]]), "sides");
+    plate(T, torsoG, M([[0.5, 0.19], [1.3, 0.21], [1.3, 0.335], [0.53, 0.305]]), "sides");
+    plate(T, torsoG, M([[0.46, 0.122], [1.3, 0.122], [1.3, 0.21], [0.5, 0.19]]), "sides");
+    // flank plates under the arm
+    plate(T, torsoG, M(rounded([[1.3, 0.46], [1.97, 0.46], [1.97, 0.73], [1.62, 0.765], [1.25, 0.71], [1.24, 0.62], [1.3, 0.62]], [0, 0, 0.2, 0.3, 0.2, 0, 0])), "sides");
+    plate(T, torsoG, M(rect(1.3, 1.97, 0.21, 0.46)), "sides");
+    plate(T, torsoG, M(rect(1.3, 1.97, 0.122, 0.21)), "sides");
+    // back: flight flap (hinged at its top edge), three bands, upper back
+    const flapOutline = M(rounded([[1.97, 0.6], [1.97, 0.8], [2.22, 0.885], [2.95, 0.87], [Math.PI - 0.06, 0.8], [Math.PI - 0.06, 0.6]], [0, 0.25, 0.25, 0.25, 0.2, 0]));
+    const thc = side * 2.55;
+    const pivot = T.point(thc, 0.875).addScaledVector(T.normal(thc, 0.875), 0.005);
+    const hinge = new THREE.Group();
+    hinge.position.copy(pivot);
+    const inner = new THREE.Group();
+    inner.position.copy(pivot).negate();
+    hinge.add(inner);
+    torsoG.add(hinge);
+    plate(T, inner, flapOutline, "flaps");
+    plate(T, inner, M(rounded([[2.2, 0.66], [2.85, 0.66], [2.9, 0.8], [2.3, 0.81]], 0.25)), "flaps", onTop(P, 0.002));
+    const tangent = T.point(thc + 0.01, 0.875).sub(T.point(thc - 0.01, 0.875)).normalize();
+    const lower = T.point(thc, 0.62).sub(pivot);
+    const sign = Math.sign(new THREE.Vector3().crossVectors(tangent, lower).dot(T.normal(thc, 0.7))) || 1;
+    flaps.push({ g: hinge, axis: tangent, sign });
+    for (const [t0, t1] of [
+      [0.46, 0.6],
+      [0.33, 0.46],
+      [0.21, 0.33],
+      [0.122, 0.21],
+    ])
+      plate(T, torsoG, M(rect(1.97, Math.PI - 0.06, t0, t1)), "back");
+    plate(T, torsoG, M([[2.22, 0.885], [2.95, 0.87], [Math.PI - 0.06, 0.88], [Math.PI - 0.06, 0.99], [2.3, 0.99]]), "back");
+    // shoulder yoke (under the pauldron)
+    plate(T, torsoG, M(rounded([[1.13, 0.79], [1.25, 0.71], [1.62, 0.765], [1.97, 0.73], [2.22, 0.885], [2.3, 0.99], [1.6, 0.99], [1.13, 0.985]], [0, 0.2, 0.2, 0.2, 0.2, 0, 0, 0])), "shoulders");
+  });
+  plate(T, chestG, symmetric([[0, 0.988], [0.4, 0.988], [0.8, 0.987], [1.13, 0.985], [1.13, 0.79], [0.93, 0.838], [0.64, 0.858], [0.32, 0.838], [0.04, 0.8], [0, 0.797]]), "collar");
+  plate(T, chestG, symmetric(rounded([[0, 0.93], [0.42, 0.925], [0.78, 0.9], [0.66, 0.885], [0.3, 0.875], [0, 0.865]], [0, 0.2, 0.3, 0.2, 0.2, 0])), "collar", onTop(P, 0.0022));
+  plate(T, torsoG, rect(Math.PI - 0.06, Math.PI + 0.06, 0.122, 0.99), "spine", { ...P, thickness: 0.006 * pk });
 
-  // ─── chest emblem: arc reactor or spider ───
-  const reactorPos = new THREE.Vector3(0, 1.33, 0.218 * tz); // just proud of the chest plate
-  let reactorLight: THREE.PointLight | null = null;
-  let reactorGlow: THREE.Mesh | null = null;
-  let emblem: THREE.Object3D | null = null;
-  if (style.kind === "iron" || style.kind === "hulk") {
-    const r = new THREE.Group();
-    r.position.copy(reactorPos);
-    chestPlate.add(r);
-    const size = style.kind === "hulk" ? 1.5 : 1;
-    if (style.reactor === "round") {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.042 * size, 0.009 * size, 10, 48), mats.dark);
-      r.add(ring);
-      reactorGlow = new THREE.Mesh(new THREE.CircleGeometry(0.034 * size, 40), mats.glow);
-    } else {
-      const sides = style.reactor === "triangle" ? 3 : 6;
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.046 * size, 0.008 * size, 6, sides), mats.dark);
-      ring.rotation.z = style.reactor === "triangle" ? -Math.PI / 2 : 0;
-      r.add(ring);
-      reactorGlow = new THREE.Mesh(new THREE.CircleGeometry(0.038 * size, sides), mats.glow);
-      reactorGlow.rotation.z = ring.rotation.z;
-    }
-    reactorGlow.position.z = 0.004;
-    r.add(reactorGlow);
-    reactorLight = new THREE.PointLight(style.glow, 0.5, 0.7, 2);
-    reactorLight.position.z = 0.05;
-    r.add(reactorLight);
-    emblem = r;
-  } else {
-    const em = spiderEmblem(style.kind === "ironspider" ? 0.1 : 0.075, style.kind === "ironspider" ? mats.secondary : new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.5 }));
-    em.position.set(0, 1.33, 0.205 * tz * 0.99);
-    em.rotation.x = -0.12;
-    torso.add(em);
-    emblem = em;
-  }
+  // arc reactor
+  const dimGlow = new THREE.MeshBasicMaterial({ color: style.glow, toneMapped: false });
+  const reactor = chestReactor(style.reactor, mats, dimGlow);
+  reactor.group.scale.setScalar(reactorScale);
+  reactor.group.position.copy(T.point(0, tR)).addScaledVector(T.normal(0, tR), 0.0045 * pk);
+  reactor.group.quaternion.setFromUnitVectors(Z, T.normal(0, tR));
+  chestG.add(reactor.group);
 
-  // ─── neck + head ───
-  mesh(new THREE.CylinderGeometry(0.055, 0.062, 0.09, 24), spider ? "primary" : "dark", torso).position.y = 1.53;
-  const head = new THREE.Group();
-  head.position.set(0, 1.62, 0.01);
-  const hs = style.kind === "hulk" ? 1.05 : 1;
-  head.scale.setScalar(hs);
-  body.add(head);
-  const helmetPts: [number, number][] = [[0.001, -0.065], [0.07, -0.055], [0.098, 0.0], [0.108, 0.06], [0.1, 0.12], [0.07, 0.165], [0.001, 0.182]];
-  const helmet = mesh(lathe(helmetPts, 44), cloth ? "primary" : roleOf("helmet"), head);
-  helmet.scale.z = 1.12;
-  const faceInner = mesh(lathe(helmetPts.map(([r, y]) => [r * 0.92, y]), 32), "under", head);
-  faceInner.scale.z = 1.1;
+  // ─── pelvis ───
+  const PV = an.pelvis;
+  const hips = new THREE.Group();
+  hips.position.y = J.pelvisY;
+  body.add(hips);
+  skin(PV, hips, { segU: 64, segV: 20 });
+  plate(PV, hips, rect(-1.5, 1.5, 0.0, 0.08), "belt", { ...P, thickness: 0.005 * pk });
+  plate(PV, hips, rect(1.5, TAU - 1.5, 0.0, 0.08), "belt", { ...P, thickness: 0.005 * pk });
+  plate(PV, hips, symmetric(roundChain([[0, 0.08], [0.3, 0.08], [0.45, 0.14], [0.47, 0.33], [0.36, 0.58], [0.18, 0.85], [0, 0.95]], 0.25)), "pelvis");
+  plate(PV, hips, symmetric(rounded([[0, 0.18], [0.2, 0.2], [0.24, 0.42], [0.14, 0.62], [0, 0.7]], [0, 0.3, 0.3, 0.3, 0])), "pelvis", onTop(P, 0.0025));
+  both((M) => {
+    plate(PV, hips, M(rounded([[0.3, 0.08], [1.72, 0.08], [1.7, 0.52], [1.25, 0.64], [0.6, 0.47], [0.47, 0.33], [0.45, 0.14]], [0, 0, 0.2, 0.3, 0.3, 0, 0])), "hips");
+    plate(PV, hips, M(rounded([[1.72, 0.08], [Math.PI - 0.03, 0.08], [Math.PI - 0.03, 0.7], [2.5, 0.78], [1.88, 0.58], [1.7, 0.52]], [0, 0, 0.2, 0.3, 0.3, 0])), "hips");
+  });
 
-  // Faceplate on a hinge at the crown (Iron Man suits); spider masks have lenses instead.
+  // ─── neck + helmet ───
+  const neckG = new THREE.Group();
+  neckG.position.set(0, J.neckY - J.torsoY, -0.004);
+  torsoG.add(neckG);
+  skin(an.neck, neckG, { segU: 36, segV: 10 });
+  const headG = new THREE.Group();
+  headG.position.set(0, J.headY - J.neckY, 0.008);
+  headG.rotation.set(0.03, 0.06, 0);
+  neckG.add(headG);
+  const Hd = an.head;
+  skin(Hd, headG, { segU: 72, segV: 44 });
+  const eyeR: P2[] = [[0.115, 0.536], [0.2, 0.575], [0.53, 0.594], [0.605, 0.574], [0.56, 0.545], [0.22, 0.528]];
+  const pivot = new THREE.Vector3(0, Hd.length * 0.53, -0.006);
   const faceHinge = new THREE.Group();
-  faceHinge.position.set(0, 0.13, 0.03);
-  head.add(faceHinge);
-  const eyes: THREE.Mesh[] = [];
-  if (!spider) {
-    const fp = mesh(lathe(helmetPts.slice(0, 6).map(([r, y]) => [r * 1.035, y]), 40, -1.05, 2.1), roleOf("faceplate"), faceHinge);
-    fp.scale.z = 1.12;
-    fp.position.set(0, -0.13, -0.03);
-    for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.009, 0.006), mats.glow);
-      eye.position.set(side * 0.032, -0.1, 0.093);
-      eye.rotation.set(0, side * 0.32, side * -0.18);
-      faceHinge.add(eye);
-      eyes.push(eye);
-    }
-    // mouth slit
-    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.0025, 0.004), mats.dark);
-    mouth.position.set(0, -0.17, 0.062);
-    faceHinge.add(mouth);
-  } else {
-    for (const side of [-1, 1]) {
-      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.03, 32), mats.lens);
-      lens.scale.set(1.2, 0.72, 1);
-      lens.position.set(side * 0.04, 0.035, 0.112);
-      lens.rotation.set(0, side * 0.45, side * -0.5);
-      const rim = new THREE.Mesh(new THREE.RingGeometry(0.03, 0.036, 32), new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.5, side: THREE.DoubleSide }));
-      rim.position.z = -0.001;
-      lens.add(rim);
-      head.add(lens);
-      eyes.push(lens);
-    }
+  faceHinge.position.copy(pivot);
+  headG.add(faceHinge);
+  const face = new THREE.Group();
+  face.position.copy(pivot).negate();
+  faceHinge.add(face);
+  const eyeMat = new THREE.MeshBasicMaterial({ color: style.glow, toneMapped: false });
+  const HP: PlateOpts = { thickness: 0.004 * pk, base: 0.0022 * pk, gap: 0.001 * pk, bevel: 0.001 * pk, maxEdge: 0.007 };
+  // upper face (forehead, eyes, nose)
+  plate(
+    Hd,
+    face,
+    symmetric([[0, 0.83], [0.1, 0.838], [0.26, 0.852], [0.58, 0.836], [0.86, 0.77], [0.95, 0.64], [0.945, 0.515], [0.6, 0.506], [0.16, 0.5], [0.135, 0.38], [0.12, 0.258], [0, 0.254]]),
+    "faceplate",
+    { ...HP, holes: [eyeR, mirror(eyeR)] },
+  );
+  both((M) => {
+    plate(Hd, face, M([[0.16, 0.5], [0.6, 0.506], [0.34, 0.262], [0.12, 0.258], [0.135, 0.38]]), "faceplate", HP);
+    plate(Hd, face, M([[0.6, 0.506], [0.945, 0.515], [0.95, 0.47], [0.865, 0.41], [0.7, 0.29], [0.67, 0.264], [0.34, 0.262]]), "faceplate", HP);
+    plate(Hd, face, M(roundChain([[0.012, 0.248], [0.665, 0.258], [0.56, 0.17], [0.42, 0.115], [0.2, 0.098], [0.012, 0.094]], 0.2)), "faceplate", HP);
+    // eye lenses: just under the faceplate surface so the slits read as light
+    plate(Hd, face, M(grow(eyeR, 1.16, 1.45)), "glow", { thickness: 0.0004, base: (HP.base ?? 0) + (HP.thickness ?? 0) - 0.0016 * pk, gap: 0, bevel: 0.0001, maxEdge: 0.006 }).material = eyeMat;
+  });
+  // HUD on the inside (visible when the faceplate lifts)
+  const hudMat = new THREE.MeshStandardMaterial({ color: 0x030405, roughness: 0.6, metalness: 0.2, emissive: 0x7fdcff, emissiveMap: hudTexture(), emissiveIntensity: 0 });
+  const hud = new THREE.Mesh(skinGeometry(Hd, { th0: -0.82, th1: 0.82, t0: 0.3, t1: 0.76, offset: 0.0012, segU: 24, segV: 12, unitUV: true }), hudMat);
+  hud.userData.noPick = true;
+  headG.add(hud);
+  // helmet shell
+  both((M) => {
+    plate(Hd, headG, M([[0.86, 0.77], [0.95, 0.64], [0.945, 0.515], [0.95, 0.47], [0.865, 0.41], [0.7, 0.29], [0.56, 0.17], [0.42, 0.115], [0.44, 0.06], [1.4, 0.035], [2.62, 0.04], [2.62, 0.7], [2.2, 0.76], [1.5, 0.785]]), "helmet", HP);
+    plate(Hd, headG, M([[0.115, 0.84], [0.26, 0.852], [0.58, 0.836], [0.86, 0.77], [1.5, 0.785], [2.2, 0.76], [2.62, 0.7], [3.02, 0.69], [3.02, 0.94], [0.115, 0.94]]), "helmet", HP);
+    // ear piece: ring + raised centre
+    const ring = M(ellipse(1.72, 0.46, 0.3, 0.092, 36));
+    const hole = M(ellipse(1.72, 0.46, 0.18, 0.055, 28));
+    plate(Hd, headG, ring, "ears", { ...onTop(HP, 0.003), holes: [hole] });
+    plate(Hd, headG, M(ellipse(1.72, 0.46, 0.16, 0.049, 28)), "ears", onTop(HP, 0.005));
+  });
+  plate(Hd, headG, [[0.2, 0.098], [0.42, 0.115], [0.44, 0.06], [0.3, 0.035], [-0.3, 0.035], [-0.44, 0.06], [-0.42, 0.115], [-0.2, 0.098], [0, 0.094]], "helmet", HP);
+  plate(Hd, headG, [[0, 0.83], [0.115, 0.84], [0.115, 0.94], [-0.115, 0.94], [-0.115, 0.84]], "crest", HP);
+  plate(Hd, headG, rect(3.02, TAU - 3.02, 0.69, 0.94), "crest", HP);
+  plate(Hd, headG, rect(2.62, TAU - 2.62, 0.04, 0.7), "helmet", HP);
+  {
+    const { geometry, normal } = capGeometry(Hd, 0.94, HP);
+    const cap = new THREE.Mesh(geometry, mats[roleOf("helmet")]);
+    cap.castShadow = cap.receiveShadow = true;
+    headG.add(cap);
+    plates.push({ obj: cap, home: cap.position.clone(), dir: normal, k: 1 });
   }
 
-  // ─── shoulders + arms ───
-  const arms: { shoulder: THREE.Group; elbow: THREE.Group; hand: THREE.Group; palm: THREE.Mesh | null; side: number }[] = [];
-  const AR = (spider ? 0.85 : 1) * (style.kind === "hulk" ? 1.9 : 1);
-  for (const side of [-1, 1]) {
-    if (!spider) {
-      const pd = mesh(new THREE.SphereGeometry(0.088 * AR, 28, 18), roleOf("shoulders"), torso);
-      pd.scale.set(1.15, 0.85, 1);
-      pd.position.set(side * (0.255 * tx * 0.86), 1.43, 0);
-      shell(pd, [side * 0.12, 0.05, 0]);
+  // ─── arms ───
+  const arms: Arm[] = [];
+  const repulsors: THREE.Object3D[] = [];
+  const palmExhaust: { mesh: THREE.Mesh; mat: THREE.ShaderMaterial }[] = [];
+  for (const s of [1, -1]) {
+    const sh = new THREE.Group();
+    sh.position.set(s * J.shoulderX, J.shoulderY - J.torsoY, -0.008);
+    sh.scale.x = s;
+    torsoG.add(sh);
+    const UA = an.upperArm;
+    skin(UA, sh, { segU: 40, segV: 22 });
+    for (const [t0, t1] of [
+      [0.16, 0.48],
+      [0.48, 0.86],
+    ]) {
+      plate(UA, sh, rounded(rect(-1.5, 1.5, t0, t1), 0.1), "upperArms");
+      plate(UA, sh, rounded(rect(1.5, TAU - 1.5, t0, t1), 0.1), "upperArms");
+      // raised outer panel with a chamfered top (biceps / deltoid housings)
+      plate(UA, sh, rounded([[0.15, t0 + 0.06], [1.35, t0 + 0.05], [1.4, t1 - 0.06], [0.2, t1 - 0.05]], [0.3, 0.2, 0.2, 0.3]), "upperArms", onTop(P, 0.0024));
     }
-    const shoulder = new THREE.Group();
-    shoulder.position.set(side * 0.27 * tx * 0.86, 1.4, 0);
-    shoulder.rotation.z = side * 0.13;
-    body.add(shoulder);
-    const ua = mesh(lathe([[0.001, 0.02], [0.068 * AR, 0], [0.074 * AR, -0.05], [0.066 * AR, -0.2], [0.058 * AR, -0.27], [0.001, -0.3]], 28), cloth ? "primary" : roleOf("upperArms"), shoulder);
-    if (!spider) {
-      mesh(lathe([[0.06 * AR, 0], [0.06 * AR, -0.28]], 20), "under", shoulder);
-      shell(ua, [side * 0.07, 0, 0]);
+    // pauldron: shingled bands under a cap
+    const pg = new THREE.Group();
+    pg.position.set(0.012, 0.084 * an.p.arm, 0);
+    sh.add(pg);
+    const PD = an.pauldron;
+    skin(PD, pg, { segU: 40, segV: 14 });
+    {
+      const { geometry, normal } = capGeometry(PD, 0.36, { ...P, base: 0.0095 * pk, start: true });
+      const cap = new THREE.Mesh(geometry, mats[roleOf("shoulders")]);
+      cap.castShadow = cap.receiveShadow = true;
+      pg.add(cap);
+      plates.push({ obj: cap, home: cap.position.clone(), dir: normal, k: 1.4 });
     }
-    const elbow = new THREE.Group();
-    elbow.position.y = -0.29;
-    shoulder.add(elbow);
-    mesh(new THREE.SphereGeometry(0.052 * AR, 20, 14), spider ? "primary" : "dark", elbow);
-    const fa = mesh(lathe([[0.001, 0.01], [0.055 * AR, 0], [0.064 * AR, -0.06], [0.06 * AR, -0.18], [0.047 * AR, -0.26], [0.001, -0.27]], 28), cloth ? "primary" : roleOf("forearms"), elbow);
-    if (!spider) {
-      mesh(lathe([[0.048 * AR, 0], [0.042 * AR, -0.26]], 20), "under", elbow);
-      shell(fa, [side * 0.07, 0, 0.02]);
-      const cuff = mesh(lathe([[0.05 * AR, -0.2], [0.053 * AR, -0.215], [0.05 * AR, -0.23]], 28), roleOf("cuffs"), elbow);
-      cuff.position.y = 0;
-    } else {
-      // web-shooter
-      const ws = mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.04, 16), style.kind === "ironspider" ? "secondary" : "dark", elbow);
-      ws.position.set(0, -0.22, 0.03);
-      ws.rotation.x = Math.PI / 2;
+    plate(PD, pg, rounded(rect(-1.15, 4.29, 0.36, 0.66), 0.08), "shoulders", { ...P, base: 0.0062 * pk }, 1.2);
+    plate(PD, pg, rounded(rect(-1.15, 4.29, 0.66, 0.97), 0.08), "shoulders", { ...P, base: 0.003 * pk }, 1.1);
+    // elbow + gauntlet
+    const el = new THREE.Group();
+    el.position.y = -J.upperLen;
+    sh.add(el);
+    const FA = an.forearm;
+    skin(FA, el, { segU: 40, segV: 22 });
+    plate(FA, el, rounded(rect(0.3, 2.84, 0.08, 0.84), 0.1), "forearms");
+    plate(FA, el, rounded([[0.85, 0.22], [2.3, 0.2], [2.25, 0.62], [0.9, 0.66]], 0.2), "forearmPanels", onTop(P, 0.0028));
+    plate(FA, el, rounded(rect(-2.84, -0.3, 0.1, 0.84), 0.1), "forearms");
+    plate(FA, el, rect(-0.3, 0.3, 0.1, 0.84), "forearms");
+    plate(FA, el, rect(2.84, TAU - 2.84, 0.1, 0.84), "forearms");
+    plate(FA, el, rect(-1.57, 1.57, 0.84, 0.965), "cuffs", { ...P, thickness: 0.0055 * pk });
+    plate(FA, el, rect(1.57, 4.71, 0.84, 0.965), "cuffs", { ...P, thickness: 0.0055 * pk });
+    // hand
+    const wr = new THREE.Group();
+    wr.position.y = -J.foreLen;
+    el.add(wr);
+    const PM = an.palm;
+    skin(PM, wr, { segU: 32, segV: 14 });
+    plate(PM, wr, rounded(rect(0.3, 2.84, 0.1, 0.9), 0.2), "hands", SMALL);
+    plate(PM, wr, rounded(rect(0.75, 2.4, 0.3, 0.7), 0.25), "hands", onTop(SMALL, 0.0015));
+    const rep = repulsor(mats, an.p.hand);
+    rep.position.copy(PM.point(-Math.PI / 2, 0.5)).addScaledVector(PM.normal(-Math.PI / 2, 0.5), 0.0004);
+    rep.quaternion.setFromUnitVectors(Z, PM.normal(-Math.PI / 2, 0.5));
+    wr.add(rep);
+    repulsors.push(rep);
+    const ex = exhaust(0.16 * an.p.hand, 0.016 * an.p.hand, style.glow);
+    ex.mesh.rotation.x = -Math.PI / 2;
+    rep.add(ex.mesh);
+    palmExhaust.push(ex);
+    const joints: Arm["joints"] = [];
+    for (const f of an.fingers) {
+      const knuckle = new THREE.Group();
+      knuckle.position.set(0.0015, -J.palmLen + 0.005, f.z);
+      knuckle.rotation.x = f.splay;
+      wr.add(knuckle);
+      let parent: THREE.Group = knuckle;
+      f.segs.forEach((S, i) => {
+        const jg = i === 0 ? knuckle : new THREE.Group();
+        if (i > 0) {
+          jg.position.y = -f.segs[i - 1].length * 0.9;
+          parent.add(jg);
+        }
+        jg.rotation.z = f.curl[i];
+        joints.push({ g: jg, base: f.curl[i] });
+        skin(S, jg, { segU: 16, segV: 10 });
+        plate(S, jg, rect(0.42, 2.72, 0.2, 0.8), "hands", i === 2 ? TINY : SMALL);
+        parent = jg;
+      });
     }
-    const hand = new THREE.Group();
-    hand.position.y = -0.275;
-    elbow.add(hand);
-    const HS = style.kind === "hulk" ? 2.1 : 1;
-    const palmBox = mesh(new THREE.BoxGeometry(0.035 * HS, 0.085 * HS, 0.075 * HS), cloth ? "primary" : roleOf("hands"), hand);
-    palmBox.position.y = -0.045 * HS;
-    for (let f = 0; f < 4; f++) {
-      const finger = mesh(new THREE.BoxGeometry(0.018 * HS, 0.07 * HS, 0.016 * HS), cloth ? "primary" : "dark", hand);
-      finger.position.set(0, -0.12 * HS, (f - 1.5) * 0.019 * HS);
-      finger.rotation.z = side * -0.15;
+    const thumb = new THREE.Group();
+    thumb.position.set(-0.006 * an.p.hand, -0.026 * an.p.hand, 0.03 * an.p.hand);
+    thumb.rotation.set(-0.5, 0.35, -0.42);
+    wr.add(thumb);
+    {
+      let parent: THREE.Group = thumb;
+      an.thumb.forEach((S, i) => {
+        const jg = i === 0 ? thumb : new THREE.Group();
+        if (i > 0) {
+          jg.position.y = -an.thumb[i - 1].length * 0.9;
+          jg.rotation.z = -0.18;
+          joints.push({ g: jg, base: -0.18 });
+          parent.add(jg);
+        }
+        skin(S, jg, { segU: 16, segV: 10 });
+        plate(S, jg, rect(0.2, 2.6, 0.18, 0.82), "hands", i === 2 ? TINY : SMALL);
+        parent = jg;
+      });
     }
-    let palm: THREE.Mesh | null = null;
-    if (!spider) {
-      palm = new THREE.Mesh(new THREE.CircleGeometry(0.019 * HS, 24), mats.glow);
-      palm.position.set(side * -0.0185 * HS, -0.05 * HS, 0);
-      palm.rotation.y = side * -Math.PI / 2;
-      hand.add(palm);
-    }
-    arms.push({ shoulder, elbow, hand, palm, side });
+    sh.rotation.set(-0.06, 0, s * 0.19);
+    el.rotation.x = -0.28;
+    wr.rotation.set(0.08, 0, -0.05);
+    arms.push({ s, sh, el, wr, home: sh.position.clone(), joints, thumb });
   }
 
   // ─── legs ───
-  const LR = (spider ? 0.88 : 1) * (style.kind === "hulk" ? 1.75 : 1);
-  const boots: THREE.Mesh[] = [];
-  for (const side of [-1, 1]) {
+  const legs: Leg[] = [];
+  const boots: THREE.Object3D[] = [];
+  const bootExhaust: { mesh: THREE.Mesh; mat: THREE.ShaderMaterial }[] = [];
+  let kneeG: THREE.Group | null = null;
+  let footG: THREE.Group | null = null;
+  for (const s of [1, -1]) {
     const hip = new THREE.Group();
-    hip.position.set(side * 0.1 * B, 0.9, 0);
-    body.add(hip);
-    const th = mesh(lathe([[0.001, 0.02], [0.084 * LR, 0], [0.09 * LR, -0.06], [0.078 * LR, -0.3], [0.062 * LR, -0.39], [0.001, -0.41]], 28), spider ? "secondary" : roleOf("thighs"), hip);
-    if (!spider) {
-      mesh(lathe([[0.075 * LR, 0], [0.058 * LR, -0.4]], 20), "under", hip);
-      shell(th, [side * 0.05, 0, 0.06]);
-    }
-    const knee = new THREE.Group();
-    knee.position.y = -0.41;
-    hip.add(knee);
-    mesh(new THREE.SphereGeometry(0.056 * LR, 20, 14), spider ? "secondary" : roleOf("knees"), knee).position.z = 0.012;
-    const sh = mesh(lathe([[0.001, 0.01], [0.06 * LR, 0], [0.066 * LR, -0.08], [0.058 * LR, -0.3], [0.05 * LR, -0.38], [0.001, -0.4]], 28), cloth ? "primary" : roleOf("shins"), knee);
-    if (!spider) shell(sh, [side * 0.04, 0, 0.06]);
-    const boot = mesh(new THREE.BoxGeometry(0.1 * LR, 0.08, 0.21 * LR), cloth ? "primary" : roleOf("boots"), knee);
-    boot.position.set(0, -0.43, 0.04 * LR);
-    boots.push(boot);
-    if (!spider) {
-      const thr = new THREE.Mesh(new THREE.CircleGeometry(0.03 * LR, 24), mats.glow);
+    hip.position.set(s * J.hipX, J.hipY - J.pelvisY, 0.004);
+    hip.scale.x = s;
+    hip.rotation.z = s * 0.035;
+    hips.add(hip);
+    const TH = an.thigh;
+    skin(TH, hip, { segU: 48, segV: 26 });
+    plate(TH, hip, rounded([[-0.9, 0.12], [0.02, 0.085], [0.95, 0.12], [0.95, 0.86], [-0.9, 0.86]], [0.2, 0, 0.2, 0.12, 0.12]), "thighs");
+    plate(TH, hip, rounded([[-0.42, 0.27], [0.52, 0.25], [0.58, 0.72], [-0.36, 0.74]], 0.22), "thighs", onTop(P, 0.0025));
+    plate(TH, hip, rounded([[0.95, 0.12], [2.2, 0.08], [2.2, 0.84], [0.95, 0.86]], 0.1), "thighSides");
+    plate(TH, hip, rounded([[2.2, 0.08], [TAU - 2.2, 0.14], [TAU - 2.2, 0.84], [2.2, 0.84]], 0.1), "thighs");
+    plate(TH, hip, rounded([[-2.2, 0.14], [-0.9, 0.12], [-0.9, 0.86], [-2.2, 0.84]], 0.1), "thighSides");
+    const kn = new THREE.Group();
+    kn.position.y = -J.thighLen;
+    kn.rotation.x = 0.05;
+    hip.add(kn);
+    const kp = new THREE.Group();
+    kp.position.set(0, 0.058 * an.p.leg, 0.027 * an.p.leg);
+    kn.add(kp);
+    const KN = an.knee;
+    plate(KN, kp, rounded(rect(-1.25, 1.25, 0.1, 0.9), 0.3), "knees", P, 1.3);
+    plate(KN, kp, [[0, 0.24], [0.55, 0.5], [0, 0.76], [-0.55, 0.5]], "knees", onTop(P, 0.0032), 1.3);
+    const SH = an.shin;
+    skin(SH, kn, { segU: 44, segV: 26 });
+    plate(SH, kn, rounded([[-1.08, 0.07], [0, 0.055], [1.08, 0.07], [1.05, 0.55], [0.8, 0.86], [0, 0.885], [-0.8, 0.86], [-1.05, 0.55]], [0.15, 0, 0.15, 0, 0.2, 0, 0.2, 0]), "shins");
+    plate(SH, kn, rounded([[1.08, 0.07], [Math.PI - 0.025, 0.07], [Math.PI - 0.025, 0.86], [0.8, 0.86], [1.05, 0.55]], [0, 0.15, 0.15, 0, 0]), "calves");
+    plate(SH, kn, mirror(rounded([[1.08, 0.07], [Math.PI - 0.025, 0.07], [Math.PI - 0.025, 0.86], [0.8, 0.86], [1.05, 0.55]], [0, 0.15, 0.15, 0, 0])), "calves");
+    plate(SH, kn, [[-1.57, 0.86], [-0.8, 0.86], [0, 0.885], [0.8, 0.86], [1.57, 0.86], [1.57, 0.975], [-1.57, 0.975]], "ankles");
+    plate(SH, kn, rect(1.57, 4.71, 0.86, 0.975), "ankles");
+    const ank = new THREE.Group();
+    ank.position.y = -J.shinLen;
+    ank.rotation.set(-0.05, 0.1, -0.035);
+    kn.add(ank);
+    const ft = new THREE.Group();
+    ft.position.z = -J.footBack;
+    ank.add(ft);
+    const FT = an.foot;
+    skin(FT, ft, { segU: 44, segV: 28 });
+    plate(FT, ft, rounded([[-1.18, 0.32], [1.18, 0.32], [1.22, 0.74], [-1.22, 0.74]], 0.12), "boots");
+    plate(FT, ft, rounded([[-1.65, 0.74], [1.65, 0.74], [1.72, 0.92], [0.95, 0.982], [-0.95, 0.982], [-1.72, 0.92]], [0, 0, 0.3, 0.3, 0.3, 0.3]), "boots");
+    plate(FT, ft, rounded([[1.18, 0.05], [2.42, 0.05], [2.42, 0.74], [1.22, 0.74], [1.18, 0.32]], [0.25, 0.2, 0.1, 0, 0]), "boots");
+    plate(FT, ft, mirror(rounded([[1.18, 0.05], [2.42, 0.05], [2.42, 0.74], [1.22, 0.74], [1.18, 0.32]], [0.25, 0.2, 0.1, 0, 0])), "boots");
+    plate(FT, ft, ellipse(Math.PI / 2, 0.2, 0.36, 0.09, 30), "ankles", onTop(P, 0.003));
+    // sole thrusters
+    for (const tz of [0.24, 0.66]) {
+      const thr = new THREE.Group();
+      const sp = FT.point(Math.PI, tz);
+      thr.position.set(0, sp.y - 0.0008, sp.z);
       thr.rotation.x = Math.PI / 2;
-      thr.position.set(0, -0.472, 0.0);
-      thr.visible = false;
-      knee.add(thr);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.019 * an.p.leg, 0.0028, 8, 36), mats.steel);
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.0175 * an.p.leg, 36), mats.glow);
+      disc.position.z = 0.0005;
+      thr.add(ring, disc);
+      const ex2 = exhaust(0.34 * an.p.leg, 0.024 * an.p.leg, style.glow);
+      ex2.mesh.rotation.x = -Math.PI / 2;
+      thr.add(ex2.mesh);
+      bootExhaust.push(ex2);
+      ft.add(thr);
       boots.push(thr);
     }
+    if (!kneeG) kneeG = kp;
+    if (!footG) footG = ft;
+    legs.push({ s, hip, kn, ank, home: hip.position.clone() });
   }
 
-  // ─── Iron Spider waldoes (4 mechanical legs from the back) ───
-  const waldoes: { root: THREE.Group; seg2: THREE.Group; seg3: THREE.Group; side: number; tier: number }[] = [];
-  if (style.kind === "ironspider") {
-    for (const side of [-1, 1]) {
-      for (const tier of [0, 1]) {
-        const root = new THREE.Group();
-        root.position.set(side * 0.07, 1.28 - tier * 0.12, -0.12);
-        torso.add(root);
-        const segGeo = new THREE.CylinderGeometry(0.012, 0.009, 0.3, 10);
-        segGeo.translate(0, -0.15, 0);
-        mesh(segGeo, "secondary", root);
-        const seg2 = new THREE.Group();
-        seg2.position.y = -0.3;
-        root.add(seg2);
-        mesh(new THREE.SphereGeometry(0.016, 12, 8), "dark", seg2);
-        mesh(segGeo.clone(), "secondary", seg2);
-        const seg3 = new THREE.Group();
-        seg3.position.y = -0.3;
-        seg2.add(seg3);
-        const tip = new THREE.ConeGeometry(0.011, 0.24, 10);
-        tip.translate(0, -0.12, 0);
-        mesh(tip, "secondary", seg3);
-        waldoes.push({ root, seg2, seg3, side, tier });
-      }
-    }
-  }
+  if (style.hulk) content.scale.setScalar(1.45);
 
-  content.scale.setScalar(style.kind === "hulk" ? 1.28 : 1);
-
-  // ─── parts (labels) ───
-  const parts: PartAnchor[] = [];
-  if (!spider) {
-    parts.push(part("Helmet & faceplate", "Hinged faceplate with HUD optics; lifts to reveal the face.", 1, at(faceHinge, 0, -0.05, 0.11), faceHinge));
-    parts.push(part("Arc reactor", "Chest power source feeding every system in the suit.", 1, at(emblem!, 0, 0, 0.02)));
-    parts.push(part("Repulsors", "Palm emitters for flight stabilisation and weapons.", 1, at(arms[1].hand, 0, -0.05, 0)));
-    parts.push(part("Chest plate", "Primary armour over the reactor and vital systems.", 2, centerOf(chestPlate, 0.2), chestPlate));
-    parts.push(part("Pauldrons", "Shoulder armour that covers the arm actuators.", 2, at(arms[0].shoulder, 0, 0.05, 0)));
-    parts.push(part("Gauntlets", "Forearm housings for weapons and micro-servos.", 2, at(arms[0].elbow, 0, -0.14, 0.06)));
-    parts.push(part("Boot thrusters", "Main flight thrusters in the soles.", 1, at(boots[0], 0, -0.03, 0.06)));
-    parts.push(part("Knee actuators", "Load-bearing joints that absorb landings.", 2, at(boots[0].parent!, 0, 0, 0.06)));
-  } else {
-    parts.push(part("Mask lenses", "Shutter lenses that widen and narrow like eyes.", 1, at(eyes[1], 0, 0, 0.01)));
-    parts.push(part("Spider emblem", style.kind === "ironspider" ? "Gold insignia; the legs deploy from behind it." : "The chest insignia.", 1, at(emblem!, 0, 0.02, 0.02)));
-    parts.push(part("Web-shooters", "Wrist launchers for synthetic web fluid.", 1, at(arms[1].elbow, 0, -0.22, 0.05)));
-    if (style.kind === "ironspider") parts.push(part("Waldoes", "Four mechanical spider legs for climbing and combat.", 1, at(waldoes[0].seg2, 0, 0, 0)));
-    parts.push(part("Suit fabric", cloth ? "Stretch weave with raised web lines." : "Nanotech armour plating.", 2, at(torso, 0.14, 1.1, 0.1)));
-  }
+  // ─── labels ───
+  const fp = Hd.point(0, 0.5).add(Hd.normal(0, 0.5).multiplyScalar(0.012));
+  const parts: PartAnchor[] = [
+    part("Helmet & faceplate", "Hinged faceplate with HUD optics; lifts to reveal the display inside.", 1, at(face, fp.x, fp.y, fp.z), faceHinge),
+    part("Arc reactor", style.reactor === "round" ? "Chest reactor with ten copper coils; powers every system." : style.reactor === "triangle" ? "New-element reactor: triangular core, far higher output." : "Nanotech housing: the suit flows out of it on command.", 1, at(reactor.group, 0, 0, 0.02)),
+    part("Repulsors", "Palm emitters for flight stabilisation and weapons.", 1, at(repulsors[0], 0, 0, 0.01)),
+    part("Chest plate", "Layered armour over the reactor and vital systems.", 2, centerOf(chestG, 0.15), chestG),
+    part("Pauldrons", "Shingled shoulder plates over the arm actuators.", 2, at(arms[0].sh, 0.03, 0.06, 0)),
+    part("Gauntlets", "Forearm housings for micro-missiles and servos.", 2, at(arms[0].el, 0.06, -0.12, 0.0)),
+    part("Boot thrusters", "Main flight thrusters in the soles.", 1, at(footG!, 0, -0.09, 0.12)),
+    part("Knee actuators", "Load-bearing joints that absorb landings.", 2, at(kneeG!, 0, 0, 0.06)),
+    part("Flight flaps", "Back flaps that open for stability and cooling.", 2, at(flaps[0].g, 0, -0.08, -0.02), flaps[0].g),
+  ];
 
   // ─── actions ───
-  const state = { faceplate: false, repulsors: false, flight: false, armor: false, legs: false, squint: false, paint: scheme0.name };
-  const anim = { face: 0, rep: 0, fly: 0, open: 0, explode: 0, legs: 0, squint: 0 };
-  const target = { primary: new THREE.Color(scheme0.primary), secondary: new THREE.Color(scheme0.secondary) };
-  const actions: ModelAction[] = [];
-  if (!spider) {
-    actions.push({ id: "faceplate", label: "Faceplate", kind: "toggle", words: ["faceplate", "face plate", "helmet", "mask", "visor"], value: false, parts: [faceHinge] });
-    actions.push({ id: "repulsors", label: "Repulsors", kind: "toggle", words: ["repulsor", "repulsors", "hands", "palms", "weapons"], value: false, parts: arms.map((a) => a.hand) });
-    actions.push({ id: "flight", label: "Flight mode", kind: "toggle", words: ["flight", "fly", "thrusters", "hover", "take off"], value: false, parts: boots });
-    actions.push({ id: "armor", label: "Armor", kind: "toggle", words: ["armor", "armour", "suit", "plates", "chest"], value: false, parts: [chestPlate] });
-  } else {
-    actions.push({ id: "squint", label: "Lenses", kind: "toggle", words: ["lenses", "lens", "eyes", "squint", "mask"], value: false, parts: eyes });
-    if (style.kind === "ironspider") actions.push({ id: "legs", label: "Waldoes", kind: "toggle", words: ["legs", "spider legs", "waldoes", "arms", "mechanical legs"], value: false, parts: [emblem!, ...waldoes.map((w) => w.root)] });
-  }
-  if (style.schemes.length > 1) actions.push({ id: "paint", label: "Paint", kind: "choice", options: style.schemes.map((s) => s.name), words: ["paint", "colour", "color", "scheme", "finish"], value: scheme0.name });
+  const s0 = style.schemes[0];
+  const state = { faceplate: false, repulsors: false, flight: false, armor: false };
+  const anim = { face: 0, rep: 0, fly: 0, open: 0, explode: 0 };
+  const target = { primary: new THREE.Color(s0.primary), secondary: new THREE.Color(s0.secondary) };
+  const actions: ModelAction[] = [
+    { id: "faceplate", label: "Faceplate", kind: "toggle", words: ["faceplate", "face plate", "helmet", "mask", "visor"], value: false, parts: [faceHinge] },
+    { id: "repulsors", label: "Repulsors", kind: "toggle", words: ["repulsor", "repulsors", "hands", "palms", "weapons"], value: false, parts: arms.map((a) => a.wr) },
+    { id: "flight", label: "Flight mode", kind: "toggle", words: ["flight", "fly", "thrusters", "hover", "take off"], value: false, parts: [...boots, ...flaps.map((f) => f.g)] },
+    { id: "armor", label: "Armor", kind: "toggle", words: ["armor", "armour", "suit", "plates", "chest"], value: false, parts: [chestG] },
+  ];
+  if (style.schemes.length > 1) actions.push({ id: "paint", label: "Paint", kind: "choice", options: style.schemes.map((s) => s.name), words: ["paint", "colour", "color", "scheme", "finish"], value: s0.name });
 
   const act = (id: string, value: boolean | string) => {
     if (id === "paint") {
-      const s = style.schemes.find((x) => x.name === value) ?? scheme0;
-      state.paint = s.name;
+      const s = style.schemes.find((x) => x.name === value) ?? s0;
       target.primary.set(s.primary);
       target.secondary.set(s.secondary);
       return;
     }
-    if (id in state) (state as Record<string, boolean | string>)[id] = value;
+    if (id in state) (state as Record<string, boolean>)[id] = Boolean(value);
   };
 
-  const apply = () => {
-    for (const s of shells) s.obj.position.copy(s.home).addScaledVector(s.out, Math.max(anim.open * 0.9, anim.explode * 1.6));
+  const headHome = headG.position.clone();
+  const applyPlates = () => {
+    const o = ease(anim.open);
+    for (const p of plates) p.obj.position.copy(p.home).addScaledVector(p.dir, (0.026 * o * p.k + 0.12 * anim.explode) * pk);
+    for (const a of arms) a.sh.position.copy(a.home).add(new THREE.Vector3(a.s * 0.2 * anim.explode, 0.02 * anim.explode, 0));
+    for (const l of legs) l.hip.position.copy(l.home).add(new THREE.Vector3(l.s * 0.06 * anim.explode, -0.1 * anim.explode, 0));
+    headG.position.copy(headHome).add(new THREE.Vector3(0, 0.16 * anim.explode, 0));
   };
-  const step = (k: number, v: number, to: number) => v + (to - v) * k;
+  const primaryMat = mats.primary as THREE.MeshPhysicalMaterial;
+  const secondaryMat = mats.secondary as THREE.MeshPhysicalMaterial;
+  let lastOpen = -1;
+  let lastExplode = -1;
 
   return {
     content,
@@ -437,85 +716,146 @@ function buildRig(style: SuitStyle): Built {
     act,
     explode(a) {
       anim.explode = a;
-      apply();
     },
     update(dt, t) {
       const k = 1 - Math.exp(-dt * 4);
-      anim.face = step(k, anim.face, state.faceplate ? 1 : 0);
-      anim.rep = step(k, anim.rep, state.repulsors ? 1 : 0);
-      anim.fly = step(k * 0.7, anim.fly, state.flight ? 1 : 0);
-      anim.open = step(k, anim.open, state.armor ? 1 : 0);
-      anim.legs = step(k * 0.8, anim.legs, state.legs ? 1 : 0);
-      anim.squint = step(k * 2, anim.squint, state.squint ? 1 : 0);
-      faceHinge.rotation.x = -1.35 * anim.face;
-      // repulsors: forearms come up, palms face forward; flight: arms back, body rises
+      anim.face += ((state.faceplate ? 1 : 0) - anim.face) * k;
+      anim.rep += ((state.repulsors ? 1 : 0) - anim.rep) * k;
+      anim.fly += ((state.flight ? 1 : 0) - anim.fly) * k * 0.7;
+      anim.open += ((state.armor ? 1 : 0) - anim.open) * k;
+      const face = ease(anim.face);
+      faceHinge.rotation.x = -1.5 * face;
+      faceHinge.position.set(pivot.x, pivot.y + 0.022 * face, pivot.z + 0.03 * face);
+      faceHinge.scale.setScalar(1 + 0.06 * face);
+      const g = holoGain.value;
+      hudMat.emissiveIntensity = face * 1.1 * g;
+      // arms: relaxed · repulsors (arm forward, palm out) · flight (arms back, palms behind)
+      const f = ease(anim.fly);
+      const r = ease(anim.rep) * (1 - f);
+      const rest = 1 - r - f;
       for (const a of arms) {
-        a.shoulder.rotation.x = -0.25 * anim.rep + 0.35 * anim.fly;
-        a.shoulder.rotation.z = a.side * (0.13 + 0.12 * anim.fly);
-        a.elbow.rotation.x = -1.35 * anim.rep * (1 - anim.fly);
-        a.hand.rotation.z = a.side * 1.45 * anim.rep * (1 - anim.fly);
-        a.hand.rotation.x = 0.6 * anim.fly;
+        a.sh.rotation.x = -0.06 * rest - 1.42 * r + 0.36 * f;
+        a.sh.rotation.z = a.s * (0.19 * rest + 0.1 * r + 0.24 * f);
+        a.el.rotation.x = -0.28 * rest - 0.06 * r - 0.08 * f;
+        a.wr.rotation.set(0.08 * rest, -1.5708 * (r + f), -0.05 * rest + 1.38 * r + 0.55 * f);
+        const curl = 1 - 0.95 * r - 0.55 * f;
+        for (const j of a.joints) j.g.rotation.z = j.base * curl + 0.08 * r;
       }
-      body.position.y = anim.fly * (0.18 + Math.sin(t * 2.2) * 0.02);
-      for (const b of boots) if (b.material === mats.glow) b.visible = anim.fly > 0.05;
-      const pulse = 0.85 + 0.15 * Math.sin(t * 3);
-      const g = holoGain.value; // brightness control
-      glowMat.color.copy(glowBase).multiplyScalar(pulse * g * (1 + anim.rep * 0.8 + anim.fly * 0.5));
-      if (reactorLight) reactorLight.intensity = (0.4 + 0.5 * anim.rep + 0.2 * Math.sin(t * 3)) * g;
-      for (const e of eyes) if (spider) e.scale.y = 0.72 * (1 - anim.squint * 0.55);
-      for (const w of waldoes) {
-        const out = anim.legs;
-        w.root.rotation.z = w.side * (0.2 + 1.2 * out);
-        w.root.rotation.x = 0.35 + (w.tier ? 0.55 : -0.25) * out;
-        w.seg2.rotation.z = w.side * (-2.4 + 1.4 * out);
-        w.seg3.rotation.z = w.side * (0.9 - 0.4 * out);
+      for (const l of legs) {
+        l.hip.rotation.x = 0.08 * f;
+        l.hip.rotation.z = l.s * (0.035 - 0.03 * f);
+        l.ank.rotation.x = -0.05 + 0.5 * f;
       }
-      if (anim.open > 0.001 || anim.explode > 0.001) apply();
-      // paint fades between schemes
+      body.position.y = f * (0.2 + 0.015 * Math.sin(t * 2.2));
+      for (const fl of flaps) fl.g.quaternion.setFromAxisAngle(fl.axis, fl.sign * 0.5 * f);
+      for (const e of bootExhaust) {
+        e.mesh.visible = f > 0.02;
+        e.mat.uniforms.uGain.value = f * g;
+        e.mat.uniforms.uTime.value = t;
+        e.mesh.scale.set(1, 0.85 + 0.15 * Math.sin(t * 31), 1);
+      }
+      for (const e of palmExhaust) {
+        e.mesh.visible = f > 0.02;
+        e.mat.uniforms.uGain.value = f * g * 0.6;
+        e.mat.uniforms.uTime.value = t;
+      }
+      // glow follows the brightness control (low by default)
+      const pulse = 0.9 + 0.1 * Math.sin(t * 3);
+      glowMat.color.copy(glowBase).multiplyScalar(1.6 * g * pulse * (1 + 0.7 * anim.rep + 0.4 * f));
+      dimGlow.color.copy(glowBase).multiplyScalar(0.55 * g * pulse * (1 + 0.5 * anim.rep));
+      eyeMat.color.copy(glowBase).multiplyScalar(2.7 * g * (0.96 + 0.04 * Math.sin(t * 2.3)));
+      reactor.light.intensity = (0.35 + 0.35 * anim.rep) * g;
+      if (Math.abs(anim.open - lastOpen) > 1e-4 || Math.abs(anim.explode - lastExplode) > 1e-4) {
+        lastOpen = anim.open;
+        lastExplode = anim.explode;
+        applyPlates();
+      }
       const kc = 1 - Math.exp(-dt * 3);
-      if (!cloth) {
-        (mats.primary as THREE.MeshPhysicalMaterial).color.lerp(target.primary, kc);
-        (mats.secondary as THREE.MeshPhysicalMaterial).color.lerp(target.secondary, kc);
-      } else {
-        (mats.primary as THREE.MeshStandardMaterial).color.lerp(target.primary, kc);
-        (mats.secondary as THREE.MeshStandardMaterial).color.lerp(target.secondary, kc);
-      }
+      primaryMat.color.lerp(target.primary, kc);
+      secondaryMat.color.lerp(target.secondary, kc);
     },
   };
 }
 
 const IRON_SCHEMES = (main: Scheme): Scheme[] => [
   main,
-  { name: "Stealth", primary: 0x2a2e35, secondary: 0x5d646d },
-  { name: "Gold", primary: 0xb98a2e, secondary: 0xe0b85a },
-  { name: "Silver", primary: 0xaab1b9, secondary: 0x737a83 },
+  { name: "Stealth", primary: 0x23272d, secondary: 0x5b626b },
+  { name: "Gold", primary: 0xb88a2c, secondary: 0xe3bf62 },
+  { name: "Silver", primary: 0xaab1b9, secondary: 0x6e757e },
 ];
 
 const wrap = (b: Built, radius: number): BuiltObject => {
-  // stand on the floor: content origin at the feet → centre it
   b.content.position.y = -0.95 * b.content.scale.y;
   const g = new THREE.Group();
   g.add(b.content);
   return { content: g, radius, parts: b.parts, actions: b.actions, act: b.act, update: b.update, explode: b.explode };
 };
 
+const regions = (...r: string[]) => new Set(r);
+/** Iron Man proportions: broad chest and shoulders, compact helmet. */
+const IRON: Proportions = { ...HEROIC, tw: 1.07, td: 1.03, arm: 1.04, leg: 1.06, head: 0.93 };
+
 export const buildMark3 = () =>
-  wrap(buildRig({ kind: "iron", schemes: IRON_SCHEMES({ name: "Classic", primary: 0x9e1219, secondary: 0xd9a441 }), gold: new Set(["faceplate", "abs", "upperArms", "thighs", "cuffs"]), glow: 0xcdf3ff, reactor: "round", bulk: 1 }), 1.05);
+  wrap(
+    buildIronSuit({
+      schemes: IRON_SCHEMES({ name: "Classic", primary: 0x9a1016, secondary: 0xd6a548 }),
+      gold: regions("faceplate", "abs", "upperArms", "thighSides", "ankles", "forearmPanels"),
+      glow: 0xd4f4ff,
+      reactor: "round",
+      p: IRON,
+    }),
+    0.97,
+  );
 
 export const buildMark42 = () =>
-  wrap(buildRig({ kind: "iron", schemes: IRON_SCHEMES({ name: "Classic", primary: 0x8f1319, secondary: 0xd7a43c }), gold: new Set(["faceplate", "chest", "upperArms", "forearms", "thighs", "shins", "hands", "knees"]), glow: 0xd2f5ff, reactor: "round", bulk: 1 }), 1.05);
+  wrap(
+    buildIronSuit({
+      schemes: IRON_SCHEMES({ name: "Classic", primary: 0x8e1218, secondary: 0xd8a83e }),
+      gold: regions("faceplate", "chest", "collar", "abs", "upperArms", "forearms", "forearmPanels", "cuffs", "hands", "thighs", "knees", "shins", "boots"),
+      glow: 0xd8f6ff,
+      reactor: "round",
+      p: IRON,
+    }),
+    0.97,
+  );
 
 export const buildMark50 = () =>
-  wrap(buildRig({ kind: "iron", schemes: IRON_SCHEMES({ name: "Nanotech", primary: 0x6e0b11, secondary: 0xc9963a }), gold: new Set(["faceplate", "abs", "cuffs", "knees", "hands"]), glow: 0xbff0ff, reactor: "hex", bulk: 0.96 }), 1.05);
+  wrap(
+    buildIronSuit({
+      schemes: IRON_SCHEMES({ name: "Nanotech", primary: 0x700a10, secondary: 0xcf9c3c }),
+      gold: regions("faceplate", "abs", "forearmPanels", "knees", "ears", "cuffs", "ankles"),
+      glow: 0xc4f1ff,
+      reactor: "hex",
+      p: { ...IRON, tw: 1.04, arm: 1.0 },
+      nano: true,
+    }),
+    0.97,
+  );
 
 export const buildMark85 = () =>
-  wrap(buildRig({ kind: "iron", schemes: IRON_SCHEMES({ name: "Classic", primary: 0x8a1016, secondary: 0xd8a948 }), gold: new Set(["faceplate", "abs", "upperArms", "forearms", "thighs", "knees", "pelvis", "shoulders"]), glow: 0xd6f6ff, reactor: "triangle", bulk: 1.02 }), 1.05);
+  wrap(
+    buildIronSuit({
+      schemes: IRON_SCHEMES({ name: "Classic", primary: 0x8a0f15, secondary: 0xd9aa4a }),
+      gold: regions("faceplate", "abs", "upperArms", "forearms", "thighSides", "knees", "shoulders", "ears", "ankles", "pelvis"),
+      glow: 0xdaf7ff,
+      reactor: "triangle",
+      p: { ...IRON, tw: 1.08 },
+      nano: true,
+    }),
+    0.97,
+  );
 
 export const buildHulkbuster = () =>
-  wrap(buildRig({ kind: "hulk", schemes: IRON_SCHEMES({ name: "Classic", primary: 0x9a1418, secondary: 0xd4a531 }), gold: new Set(["faceplate", "abs", "forearms", "shins", "knees", "cuffs"]), glow: 0xcff4ff, reactor: "round", bulk: 1.75 }), 1.45);
+  wrap(
+    buildIronSuit({
+      schemes: IRON_SCHEMES({ name: "Classic", primary: 0x98141a, secondary: 0xd4a531 }),
+      gold: regions("faceplate", "abs", "forearms", "forearmPanels", "shins", "knees", "cuffs", "ears"),
+      glow: 0xd2f5ff,
+      reactor: "round",
+      p: { tw: 1.6, td: 1.5, arm: 1.9, leg: 1.6, hand: 1.9, head: 0.95 },
+      hulk: true,
+    }),
+    1.45,
+  );
 
-export const buildSpiderClassic = () =>
-  wrap(buildRig({ kind: "spider", schemes: [{ name: "Classic", primary: 0xffffff, secondary: 0x1b3f9e }, { name: "Black suit", primary: 0x2b2d33, secondary: 0x0d0e11 }, { name: "Stealth", primary: 0x5b6068, secondary: 0x22262c }], gold: new Set(), glow: 0xffffff, reactor: "round", bulk: 1, slim: true }), 1.05);
-
-export const buildIronSpider = () =>
-  wrap(buildRig({ kind: "ironspider", schemes: [{ name: "Classic", primary: 0xa3141c, secondary: 0xd6a33e }, { name: "Stealth", primary: 0x24272d, secondary: 0x8a9099 }], gold: new Set(["cuffs", "knees"]), glow: 0xffffff, reactor: "round", bulk: 1, slim: true }), 1.05);
+export { buildSpiderClassic, buildIronSpider } from "./spider";

@@ -2062,7 +2062,10 @@ input {
 .pg-overlay__left .object-panel .panel__inner {
   max-height: 100%;
   overflow-y: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+.pg-overlay__left .object-panel .panel__inner::-webkit-scrollbar {
+  display: none;
 }
 .pg-overlay__left .pg-overlay__tools {
   position: static;

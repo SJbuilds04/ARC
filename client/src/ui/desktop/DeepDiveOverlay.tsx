@@ -53,23 +53,17 @@ function PinPrompt() {
   );
 }
 
-function CarouselBar() {
+/** Slim arrows at the screen edges: nothing sits over the models (the front one says how to open it). */
+function CarouselArrows() {
   return (
-    <div className="dd-carousel-bar arc-ui-block">
-      <button className="btn btn--tool" onClick={() => deepDive?.step(-1)} aria-label="Previous model">
-        <Icon.Chevron width={18} height={18} style={{ transform: "scaleX(-1)" }} />
+    <>
+      <button className="dd-arrow dd-arrow--left arc-ui-block" onClick={() => deepDive?.step(-1)} aria-label="Previous model" title="Previous (←)">
+        <Icon.Chevron width={22} height={22} style={{ transform: "scaleX(-1)" }} />
       </button>
-      <div className="dd-carousel-bar__hint">
-        <b>PICK A MODEL</b>
-        <span>Close your fist and move sideways to spin · pinch the front card or say “this one”</span>
-      </div>
-      <button className="btn" onClick={() => deepDive?.selectFront()}>
-        OPEN
+      <button className="dd-arrow dd-arrow--right arc-ui-block" onClick={() => deepDive?.step(1)} aria-label="Next model" title="Next (→)">
+        <Icon.Chevron width={22} height={22} />
       </button>
-      <button className="btn btn--tool" onClick={() => deepDive?.step(1)} aria-label="Next model">
-        <Icon.Chevron width={18} height={18} />
-      </button>
-    </div>
+    </>
   );
 }
 
@@ -178,7 +172,7 @@ export function DeepDiveOverlay() {
           <div className="dd-cats-top arc-ui-block">
             <CollectionTabs />
           </div>
-          <CarouselBar />
+          <CarouselArrows />
         </>
       )}
       <PinPrompt />

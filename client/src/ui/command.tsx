@@ -180,8 +180,18 @@ export function ResponseBubble({ compact = false }: { compact?: boolean }) {
   const transcript = useArc((s) => s.transcript);
   const activity = useArc((s) => s.state?.jarvis.activity ?? "IDLE");
   const showTranscript = transcript && (!response || transcript.at > response.at - 50);
+  // Over the 3D stage the reply fades out after it has been read (longer replies stay longer).
+  const [faded, setFaded] = useState(false);
+  useEffect(() => {
+    if (!compact) return;
+    setFaded(false);
+    const ms = Math.min(15000, 5000 + (response?.text.length ?? 0) * 45);
+    const id = setTimeout(() => setFaded(true), ms);
+    return () => clearTimeout(id);
+  }, [compact, response?.id, transcript?.at]);
+  const hidden = compact && faded && activity !== "THINKING";
   return (
-    <div className={`response ${compact ? "is-compact" : ""}`}>
+    <div className={`response ${compact ? "is-compact" : ""} ${hidden ? "is-faded" : ""}`}>
       {showTranscript && (
         <div className={`response__heard ${transcript!.accepted ? "" : "is-ignored"}`}>
           <span>{transcript!.accepted ? "HEARD" : "IGNORED · NO WAKE WORD"}</span> “{transcript!.text}”

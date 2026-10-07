@@ -127,7 +127,7 @@ export class DeepDive {
     if (!active && wasActive) this.leave();
     if (!active) return;
 
-    this.engine.setStudio(dd.settings.bg);
+    this.engine.setStudio(dd.settings.bg, this.wantsSpace());
     this.carousel.setItems(this.carouselItems(library, dd.collection), this.thumbs());
     this.carousel.group.visible = !dd.modelId;
 
@@ -153,8 +153,15 @@ export class DeepDive {
     }
   }
 
+  /** The carousel always has the same shape, so its view is fixed (never inside the ring). */
   private carouselView(): View {
-    return { ...HOME, distance: this.carousel.radius + 4.6, elevation: 0.04, target: new THREE.Vector3(0, STAGE_Y - 0.05, 0) };
+    return { azimuth: 0, elevation: 0.07, distance: 6.6, target: new THREE.Vector3(0, STAGE_Y + 0.22, 0.35) };
+  }
+
+  /** Models like the black hole ask for deep space behind them (while their stars are on). */
+  private wantsSpace(): boolean {
+    const ud = this.model?.built.content.userData;
+    return Boolean(ud?.spaceBackdrop && ud.spaceOn);
   }
 
   /** The overlay reports where its panels are, so labels and the model use the space between them. */
@@ -294,7 +301,8 @@ export class DeepDive {
     this.carousel.update(dt, t);
     this.applyShift();
     if (this.picking && !this.baking && (this.bakeAfter -= dt) <= 0) void this.bakeNext();
-    this.platform.visible = Boolean(this.model) && s.ar && !this.focusId;
+    this.platform.visible = Boolean(this.model) && s.ar && !this.focusId && !this.model?.built.content.userData.noPlatform;
+    this.engine.setStudio(s.bg, this.wantsSpace());
     this.platform.rotation.y += dt * 0.15;
     const m = this.model;
     if (m) {

@@ -832,34 +832,34 @@ body.visor-open .ph {
 .ph .dd-part {
   min-height: 48px;
 }
-.dd-carousel-bar {
+/* Carousel: slim edge arrows instead of a bar over the stage */
+.dd-arrow {
   position: absolute;
-  left: 50%;
-  bottom: 6px;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  max-width: min(760px, 100%);
-  background: rgba(2, 10, 20, 0.7);
-  border: 1px solid rgba(120, 205, 255, 0.25);
-  backdrop-filter: blur(10px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 96px;
+  display: grid;
+  place-items: center;
+  color: var(--cyan);
+  background: linear-gradient(90deg, rgba(2, 10, 20, 0.55), rgba(2, 10, 20, 0.15));
+  border: 1px solid rgba(120, 205, 255, 0.18);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.2s, background 0.2s;
+  z-index: 2;
 }
-.dd-carousel-bar__hint {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
+.dd-arrow:hover,
+.dd-arrow:focus-visible {
+  opacity: 1;
+  background: rgba(10, 40, 66, 0.6);
 }
-.dd-carousel-bar__hint b {
-  font-family: var(--font-mark);
-  font-size: 12px;
-  letter-spacing: 0.24em;
+.dd-arrow--left {
+  left: 8px;
 }
-.dd-carousel-bar__hint span {
-  font-size: 13px;
-  color: var(--text-dim);
+.dd-arrow--right {
+  right: 8px;
+  background: linear-gradient(270deg, rgba(2, 10, 20, 0.55), rgba(2, 10, 20, 0.15));
 }
 .btn--dive {
   border-color: var(--cyan);
@@ -1016,9 +1016,17 @@ body.visor-open .ph {
   }
 }
 
-/* Deep Dive: no empty reply placeholder over the stage */
-.desktop.is-diving .desktop__floating .response:has(.is-placeholder) {
+/* Playground / Deep Dive: no empty reply placeholder over the stage, and replies fade away */
+.desktop__floating .response:has(.is-placeholder) {
   display: none;
+}
+.response.is-compact {
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.response.is-faded {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none !important;
 }
 
 .dd-spinrow {
@@ -1161,7 +1169,6 @@ body.visor-open .ph {
   min-height: 44px;
 }
 .pg-brightness {
-  margin-top: 10px;
   padding: 8px 12px;
   background: rgba(2, 10, 20, 0.6);
   border: 1px solid rgba(120, 205, 255, 0.18);
@@ -1184,4 +1191,19 @@ body.visor-open .ph {
 }
 .dd-cats-top .dd-cats button {
   padding: 0 9px;
+}
+
+/* Over the 3D stage, notices stack bottom-right instead of covering the camera / parts panels */
+body:has(.desktop.is-playground) .notices {
+  top: auto;
+  bottom: 104px;
+  flex-direction: column-reverse;
+}
+
+/* With a model on the Deep Dive stage both sides hold panels: notices sit bottom-centre */
+body:has(.desktop.is-diving .dd-panel) .notices {
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 108px;
 }

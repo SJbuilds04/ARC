@@ -51,9 +51,7 @@ function ObjectPanel() {
       <div className="object-panel__name">{obj.name}</div>
       <div className="object-panel__facts">
         {entry?.facts.map((f) => <StatusRow key={f.label} label={f.label.toUpperCase()} value={f.value} />)}
-        <StatusRow label="POSITION" value={`${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`} />
-        <StatusRow label="ROTATION" value={`${deg(e.x)}, ${deg(e.y)}, ${deg(e.z)}`} />
-        <StatusRow label="SCALE" value={`${obj.root.scale.x.toFixed(2)}×`} />
+        <StatusRow label="TRANSFORM" value={`${obj.root.scale.x.toFixed(2)}× · ${deg(e.y)} · ${p.x.toFixed(1)}, ${p.y.toFixed(1)}`} />
       </div>
       <div className="object-panel__actions">
         <button className={`btn btn--tool ${obj.spin ? "is-on" : ""}`} onClick={() => playgroundAction({ action: "SPIN_OBJECT", target, enabled: !obj.spin, speed: 0.5 })}>
@@ -186,12 +184,12 @@ export function PlaygroundOverlay() {
             <Icon.Dive width={16} height={16} /> DEEP DIVE
           </button>
         </div>
-        <div className="pg-brightness arc-ui-block">
-          <BrightnessControl />
-        </div>
       </div>
       <div className="pg-overlay__right">
         <VisionCard />
+        <div className="pg-brightness arc-ui-block">
+          <BrightnessControl />
+        </div>
         <LocationPanel />
       </div>
       <Shelf />

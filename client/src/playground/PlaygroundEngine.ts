@@ -3,10 +3,10 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { ObjectManager, type ArcObject } from "./ObjectManager";
 import { glowSprite, holoGain, holoTime } from "./holo";
-import { blackHoleGain } from "./objects/blackhole";
+import { blackHoleEnv, blackHoleGain, blackHoleQuality } from "./objects/blackhole";
+import { studioEnvironment, studioRig } from "./studio";
 
 const FLOOR_Y = -1.15;
 const HOME = { azimuth: 0, elevation: 0.17, distance: 6.6, target: new THREE.Vector3(0, 0.15, -0.4) };
@@ -73,23 +73,22 @@ export class PlaygroundEngine {
 
     this.scene.background = new THREE.Color(0x01060e);
     this.scene.fog = new THREE.FogExp2(0x01060e, 0.045);
-    // Studio reflections for physically based materials (metal, car paint, glass, wet tissue).
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.38;
-    pmrem.dispose();
+    // Product-studio reflections (soft boxes, strip lights) for paint, metal, glass, tissue.
+    this.scene.environment = studioEnvironment(this.renderer);
+    this.scene.environmentIntensity = 1.2;
+    if (this.weakGpu) blackHoleQuality.steps = 150;
     // Faint Milky Way for depth (falls back to the flat colour until it loads).
     new THREE.TextureLoader().load("/textures/2k_stars_milky_way.jpg", (tex) => {
       tex.mapping = THREE.EquirectangularReflectionMapping;
       tex.colorSpace = THREE.SRGBColorSpace;
       this.milkyWay = tex;
-      if (!this.studio) {
-        this.scene.background = tex;
-        this.scene.backgroundIntensity = 0.16;
-      }
+      blackHoleEnv.texture = tex;
+      this.applyBackdrop();
     });
 
     this.setupLights();
+    this.studioLights.group.visible = false;
+    this.scene.add(this.studioLights.group);
     this.floor = this.buildFloor();
     this.scene.add(this.floor);
     this.particles = this.buildParticles();
@@ -265,22 +264,41 @@ export class PlaygroundEngine {
   }
 
   private studio = false;
+  private studioBg = "#02070f";
+  private space = false;
+  private brightness = 0.3;
+  private playLights = new THREE.Group();
+  private studioLights = studioRig();
   /**
-   * Studio look for Deep Dive: a plain backdrop colour, no floor/particles/fog/stars.
-   * `null` restores the Playground environment.
+   * Studio look for Deep Dive: a plain backdrop colour (or deep space for models that want
+   * it, like the black hole), studio lights, no floor/particles/fog. `null` restores the
+   * Playground environment.
    */
-  setStudio(bg: string | null): void {
-    this.studio = bg !== null;
-    this.floor.visible = this.particles.visible = !this.studio;
-    if (this.studio) {
-      this.scene.background = new THREE.Color(bg!);
+  setStudio(bg: string | null, space = false): void {
+    const studio = bg !== null;
+    if (studio === this.studio && bg === this.studioBg && space === this.space) return;
+    this.studio = studio;
+    if (bg) this.studioBg = bg;
+    this.space = space;
+    this.floor.visible = this.particles.visible = !studio;
+    this.playLights.visible = !studio;
+    this.studioLights.group.visible = studio;
+    this.scene.fog = studio ? null : new THREE.FogExp2(0x01060e, 0.045);
+    this.applyBackdrop();
+    this.setBrightness(this.brightness);
+  }
+
+  private applyBackdrop(): void {
+    if (this.studio && !this.space) {
+      this.scene.background = new THREE.Color(this.studioBg);
       this.scene.backgroundIntensity = 1;
-      this.scene.fog = null;
-    } else {
-      this.scene.background = this.milkyWay ?? new THREE.Color(0x01060e);
-      this.scene.backgroundIntensity = this.milkyWay ? 0.16 : 1;
-      this.scene.fog = new THREE.FogExp2(0x01060e, 0.045);
+      blackHoleEnv.intensity = 0;
+      return;
     }
+    const level = this.studio ? 0.42 : 0.16;
+    this.scene.background = this.milkyWay ?? new THREE.Color(0x01060e);
+    this.scene.backgroundIntensity = this.milkyWay ? level : 1;
+    blackHoleEnv.intensity = this.milkyWay ? level : 0;
   }
 
   /**
@@ -289,10 +307,13 @@ export class PlaygroundEngine {
    */
   setBrightness(b: number): void {
     const v = Math.max(0, Math.min(1, b));
-    this.renderer.toneMappingExposure = 0.5 + v * 0.75;
-    this.bloom.strength = 0.12 + v * 0.55;
-    this.bloom.threshold = 0.72 - v * 0.2;
-    this.scene.environmentIntensity = 0.22 + v * 0.3;
+    this.brightness = v;
+    this.renderer.toneMappingExposure = 0.55 + v * 0.7;
+    // bloom only for things that really glow (eyes, reactors, the disk), not every highlight
+    this.bloom.strength = 0.08 + v * 0.35;
+    this.bloom.radius = 0.35;
+    this.bloom.threshold = 0.95;
+    this.scene.environmentIntensity = this.studio ? 1.2 + v * 2.0 : 0.9 + v * 1.2;
     holoGain.value = 0.42 + v * 0.75;
     blackHoleGain.value = 0.6 + v * 0.7;
   }
@@ -389,8 +410,10 @@ export class PlaygroundEngine {
   // ─── Environment ───
 
   private setupLights(): void {
-    this.scene.add(new THREE.HemisphereLight(0x3d6fa8, 0x02060c, 0.9));
-    this.scene.add(new THREE.AmbientLight(0x1a3150, 0.6));
+    const g = this.playLights;
+    this.scene.add(g);
+    g.add(new THREE.HemisphereLight(0x3d6fa8, 0x02060c, 0.75));
+    g.add(new THREE.AmbientLight(0x1a3150, 0.45));
     const key = new THREE.DirectionalLight(0xdfefff, 2.2);
     key.position.set(-4, 7, 5);
     key.castShadow = true;
@@ -399,13 +422,13 @@ export class PlaygroundEngine {
     key.shadow.camera.right = key.shadow.camera.top = 7;
     key.shadow.bias = -0.0004;
     key.shadow.radius = 4;
-    this.scene.add(key);
-    const rim = new THREE.PointLight(0x37b6ff, 18, 14, 1.8);
+    g.add(key);
+    const rim = new THREE.PointLight(0x37b6ff, 14, 14, 1.8);
     rim.position.set(4, 2, -3);
-    this.scene.add(rim);
-    const fill = new THREE.PointLight(0x2050ff, 8, 12, 2);
+    g.add(rim);
+    const fill = new THREE.PointLight(0x2050ff, 6, 12, 2);
     fill.position.set(-5, 0.5, -2);
-    this.scene.add(fill);
+    g.add(fill);
   }
 
   private buildFloor(): THREE.Group {
