@@ -8,6 +8,8 @@ import type { PartAnchor } from "./objects/parts";
 import { buildImported } from "./ModelLoader";
 import { holoMaterial } from "./holo";
 import { Carousel, type CarouselItem } from "./Carousel";
+import { kitDetail } from "./objects/suitkit";
+import { studioRig } from "./studio";
 import { LabelLayer } from "./LabelLayer";
 
 const STAGE_Y = 0.1;
@@ -553,15 +555,14 @@ export class DeepDive {
     this.baking = true;
     this.thumbCaptured.add(id);
     try {
+      kitDetail.value = 0.6; // thumbnails are tiny: lighter tessellation, shorter hitch
       const built = build(id);
+      kitDetail.value = 1;
       if (!built) return;
       const scene = new THREE.Scene();
       scene.environment = this.engine.scene.environment;
-      scene.environmentIntensity = 0.5;
-      scene.add(new THREE.HemisphereLight(0x8fc4ff, 0x05080f, 1.6));
-      const key = new THREE.DirectionalLight(0xffffff, 2.4);
-      key.position.set(-3, 5, 4);
-      scene.add(key);
+      scene.environmentIntensity = 1.6;
+      scene.add(studioRig().group);
       const holder = new THREE.Group();
       holder.add(built.content);
       holder.scale.setScalar(MODEL_RADIUS / built.radius);

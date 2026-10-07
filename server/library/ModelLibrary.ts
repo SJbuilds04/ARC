@@ -12,7 +12,13 @@ interface PersistedLibrary {
   models: LibraryModel[];
   /** Thumbnail versions by model id (built-in and imported). */
   thumbs: Record<string, number>;
+  /** Built-in models were remade at this epoch: older thumbnails of them are dropped. */
+  thumbEpoch?: number;
 }
+
+/** Bump when built-in models get a new look, listing the ones whose thumbnails must be redone. */
+const THUMB_EPOCH = 2;
+const REMADE = ["mark3", "mark42", "mark50", "mark85", "hulkbuster", "arc_reactor", "arc_reactor2", "spider_classic", "iron_spider", "black_hole"];
 
 const slug = (s: string) =>
   s
@@ -56,6 +62,15 @@ export class ModelLibrary extends EventEmitter<{ change: [] }> {
     fs.mkdirSync(this.dir, { recursive: true });
     fs.mkdirSync(this.thumbsDir, { recursive: true });
     this.data = this.store.load({ models: [], thumbs: {} });
+    if ((this.data.thumbEpoch ?? 1) < THUMB_EPOCH) {
+      // these models look different now: their thumbnails are re-rendered by the PC
+      for (const id of REMADE) {
+        delete this.data.thumbs[id];
+        fs.rmSync(path.join(this.thumbsDir, `${id}.png`), { force: true });
+      }
+      this.data.thumbEpoch = THUMB_EPOCH;
+      this.save();
+    }
     this.scan();
     try {
       // Files copied into the folder show up on their own (debounced: copies take a moment).

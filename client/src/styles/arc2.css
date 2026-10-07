@@ -1207,3 +1207,29 @@ body:has(.desktop.is-diving .dd-panel) .notices {
   transform: translateX(-50%);
   bottom: 108px;
 }
+
+.dd-empty {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -50%);
+  width: min(460px, calc(100% - 40px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 22px;
+  text-align: center;
+  background: rgba(2, 10, 20, 0.6);
+  border: 1px solid rgba(120, 205, 255, 0.2);
+  backdrop-filter: blur(8px);
+}
+.dd-empty b {
+  font-family: var(--font-mark);
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  color: var(--cyan);
+}
+.dd-empty span {
+  color: var(--text-dim);
+  line-height: 1.5;
+}

@@ -364,6 +364,8 @@ export function collectionOf(id: string): Collection | undefined {
 
 /** "everything on iron man" → "ironman". Longest alias wins. */
 export function resolveCollection(input: string): string | null {
+  const exact = input.trim().toLowerCase();
+  if (COLLECTIONS.some((c) => c.id === exact)) return exact; // tab ids ("yours", "ironman"…)
   const text = ` ${input.toLowerCase().replace(/[^a-z0-9 -]+/g, " ").replace(/\s+/g, " ").trim()} `;
   let best: { id: string; len: number } | null = null;
   for (const c of COLLECTIONS) {

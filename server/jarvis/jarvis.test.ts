@@ -5,6 +5,7 @@ import { matchPart, parseModelOutput } from "./Jarvis";
 import { resolveColor } from "./colors";
 import { classify } from "../security/risk";
 import { chunkForSpeech } from "../voice/VoiceProvider";
+import { resolveCollection } from "../../shared/catalog";
 import type { ArcState } from "../../shared/types";
 
 const state = (overrides: Partial<ArcState> = {}): ArcState =>
@@ -189,6 +190,9 @@ test("collections, brightness and model actions by voice", () => {
   assert.deepEqual(actionsOf("show me the earth", s), [{ action: "SPAWN_OBJECT", object: "earth" }]); // a single model, not a collection
   assert.deepEqual(actionsOf("deep dive the iron man suit", s), [{ action: "DEEP_DIVE", enabled: true, model: "mark3" }]);
   assert.deepEqual(actionsOf("set brightness to 40%", s), [{ action: "SET_BRIGHTNESS", value: 0.4 }]);
+  // the category tabs send collection ids, which must resolve to themselves
+  for (const id of ["ironman", "spiderman", "space", "physics", "anatomy", "machines", "yours"]) assert.equal(resolveCollection(id), id);
+  assert.equal(resolveCollection("my models"), "yours");
   const acts = [
     { id: "faceplate", label: "Faceplate", kind: "toggle" as const, words: ["faceplate", "helmet", "mask"], value: false },
     { id: "paint", label: "Paint", kind: "choice" as const, options: ["Classic", "Stealth", "Gold"], value: "Classic" },

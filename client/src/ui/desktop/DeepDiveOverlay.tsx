@@ -55,6 +55,8 @@ function PinPrompt() {
 
 /** Slim arrows at the screen edges: nothing sits over the models (the front one says how to open it). */
 function CarouselArrows() {
+  const empty = useArc((s) => s.state?.deepDive.collection === "yours" && !s.state.library.length);
+  if (empty) return null;
   return (
     <>
       <button className="dd-arrow dd-arrow--left arc-ui-block" onClick={() => deepDive?.step(-1)} aria-label="Previous model" title="Previous (←)">
@@ -64,6 +66,19 @@ function CarouselArrows() {
         <Icon.Chevron width={22} height={22} />
       </button>
     </>
+  );
+}
+
+/** "Your models" with nothing imported yet: say how to add one instead of showing an empty stage. */
+function EmptyCollection() {
+  const collection = useArc((s) => s.state?.deepDive.collection ?? null);
+  const count = useArc((s) => s.state?.library.length ?? 0);
+  if (collection !== "yours" || count > 0) return null;
+  return (
+    <div className="dd-empty arc-ui-block">
+      <b>NO MODELS OF YOUR OWN YET</b>
+      <span>Import a .glb, .gltf, .obj, .stl or .fbx from the Playground shelf, drop it in the models folder, or send it from your phone.</span>
+    </div>
   );
 }
 
@@ -173,6 +188,7 @@ export function DeepDiveOverlay() {
             <CollectionTabs />
           </div>
           <CarouselArrows />
+          <EmptyCollection />
         </>
       )}
       <PinPrompt />
