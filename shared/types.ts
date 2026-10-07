@@ -29,7 +29,8 @@ export type {
   VisorGaze,
   VisorHands,
 } from "./schemas";
-export type { SceneObject, DesktopAction, ClientMessage, ClientMessageOf } from "./schemas";
+export type { SceneObject, DesktopAction, ClientMessage, ClientMessageOf, DeepDivePart } from "./schemas";
+import type { DeepDivePart } from "./schemas";
 
 export type ServiceStatus = "ONLINE" | "DEGRADED" | "OFFLINE" | "UNCONFIGURED";
 
@@ -94,22 +95,75 @@ export interface PendingAction {
   risk: RiskLevel;
   /** HIGH risk: the confirm control must be held (sustained pinch / long press). */
   holdMs: number;
+  /** Device that asked — its screen shows the full confirmation; the other gets a compact copy. */
+  device: DeviceRole;
   createdAt: number;
   expiresAt: number;
 }
 
 export type JarvisActivity = "IDLE" | "LISTENING" | "THINKING" | "SPEAKING";
 
+export type ModelFormat = "glb" | "gltf" | "obj" | "stl" | "fbx";
+
+/** A label the user pinned on an imported model. `pos` is in the model's normalized space. */
+export interface CustomLabel {
+  id: string;
+  name: string;
+  info?: string;
+  pos: [number, number, number];
+}
+
+/** An imported 3D model (built-in models come from the catalog). */
+export interface LibraryModel {
+  id: string;
+  name: string;
+  file: string;
+  format: ModelFormat;
+  size: number;
+  addedAt: number;
+  labels: CustomLabel[];
+  /** One-line functions for named parts (written by JARVIS, editable). */
+  partInfo: Record<string, string>;
+}
+
+export interface DeepDiveSettings {
+  ar: boolean;
+  bg: string;
+  color: string;
+  labelColor: string;
+  style: "solid" | "wireframe" | "xray";
+  spin: number;
+  detail: "auto" | "few" | "all";
+  explode: number;
+}
+
+export interface DeepDiveState {
+  active: boolean;
+  /** Model on the stage; null while the carousel is open. */
+  modelId: string | null;
+  modelName: string | null;
+  settings: DeepDiveSettings;
+  parts: DeepDivePart[];
+  focusPart: string | null;
+}
+
 export interface ArcState {
   sessionId: string;
   startedAt: number;
-  mode: ArcMode;
+  /**
+   * Each device's own space — they no longer drag each other along.
+   * PC: COMMAND | PLAYGROUND | VISOR (VISOR only without a phone). Phone: COMMAND | VISOR.
+   */
+  spaces: Record<DeviceRole, ArcMode>;
   /** Device that shows the primary JARVIS response and speaks it. */
   primaryDevice: DeviceRole;
   /** Device whose microphone listens for "JARVIS" hands-free. */
   voiceInput: DeviceRole;
   vision: {
+    /** Camera that feeds the PC Playground (PC by default; "use the phone camera" switches it). */
     activeSource: DeviceRole;
+    /** Phone is touch-first: its hand tracking only runs when switched on in settings. */
+    phoneHands: boolean;
     routes: VisionRoute[];
     sources: Record<DeviceRole, VisionSourceState>;
   };
@@ -118,7 +172,7 @@ export interface ArcState {
     jarvis: ServiceInfo;
     ai: ServiceInfo & { model?: string; latencyMs?: number };
     stt: ServiceInfo;
-    voice: ServiceInfo & { engine: "GROQ" | "BROWSER" };
+    voice: ServiceInfo & { engine: "GROQ" | "LOCAL" | "BROWSER"; voiceName?: string };
     desktop: ServiceInfo & { platform: string };
   };
   jarvis: { activity: JarvisActivity; armedUntil: number };
@@ -126,6 +180,10 @@ export interface ArcState {
   executions: ExecutionRecord[];
   pending: PendingAction | null;
   scene: SceneSnapshot;
+  library: LibraryModel[];
+  /** Thumbnail URLs by model id (built-in and imported), rendered by the PC. */
+  thumbs: Record<string, string>;
+  deepDive: DeepDiveState;
   settings: { autoExecuteLowRisk: boolean };
   visor: VisorState;
 }
@@ -134,7 +192,7 @@ export interface ArcState {
 export interface VisorState {
   /** Device whose front camera + screen run the visor. */
   device: DeviceRole | null;
-  /** Mode to return to on "exit visor". */
+  /** The visor device's space to return to on "exit visor". */
   previousMode: ArcMode;
   /** Keep the gaze cursor in Playground (PC camera). */
   gazeInPlayground: boolean;
@@ -188,7 +246,7 @@ export type ServerMessage =
   | { type: "CONFIRM_REQUEST"; pending: PendingAction }
   | { type: "CONFIRM_RESOLVED"; id: string; approved: boolean }
   | { type: "ACTION_STATUS"; execution: ExecutionRecord }
-  | { type: "MODE_TRANSITION"; from: ArcMode; to: ArcMode; visionFrom: DeviceRole; visionTo: DeviceRole }
+  | { type: "MODE_TRANSITION"; device: DeviceRole; from: ArcMode; to: ArcMode; visionFrom: DeviceRole; visionTo: DeviceRole }
   | { type: "CAMERA_SWITCH"; from: DeviceRole; to: DeviceRole }
   | { type: "VISOR_COMMAND"; command: "RECALIBRATE" }
   | { type: "PLAYGROUND_COMMAND"; id: string; command: PlaygroundAction }
@@ -202,6 +260,9 @@ export type ServerMessage =
       devices: PairedDeviceInfo[];
     }
   | { type: "TELEMETRY"; cpu: number | null; memory: number | null; uptime: number; t: number }
+  | { type: "CONTROL"; kind: "orbit" | "zoom" | "tilt" | "end"; dx: number; dy: number; t: number }
+  /** A file arrived from the phone (models land in the library; anything else in the inbox folder). */
+  | { type: "FILE_RECEIVED"; name: string; size: number; kind: "model" | "file"; path: string; modelId?: string }
   | { type: "NOTIFY"; level: "info" | "warning" | "error"; title: string; text: string; code?: string }
   | { type: "ERROR"; code: string; message: string };
 

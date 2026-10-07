@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { OBJECT_CATALOG, catalogEntry } from "@shared/catalog";
 import type { PlaygroundAction } from "@shared/types";
 import { useArc } from "../../core/store";
-import { arc, playground } from "../../core/services";
+import { arc, playground, uploadFile } from "../../core/services";
+import { notify } from "../../core/store";
+import { DeepDiveOverlay } from "./DeepDiveOverlay";
 import type { ArcObject } from "../../playground/ObjectManager";
 import { Panel, StatusRow } from "../primitives";
 import { Icon, ObjectGlyph } from "../Icons";
@@ -111,19 +113,50 @@ function VisionCard() {
   );
 }
 
+const EMPTY: never[] = [];
+
+/** Pick model files from disk and add them to the library. */
+export function ImportButton({ className = "shelf__item shelf__item--import", label = "IMPORT" }: { className?: string; label?: string }) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <button className={className} onClick={() => input.current?.click()} title="Import a 3D model (.glb .gltf .obj .stl .fbx)">
+        <Icon.Upload width={26} height={26} />
+        <span>{label}</span>
+      </button>
+      <input
+        ref={input}
+        type="file"
+        hidden
+        multiple
+        accept=".glb,.gltf,.obj,.stl,.fbx"
+        onChange={(e) => {
+          for (const file of Array.from(e.target.files ?? [])) {
+            void uploadFile(file).then((r) => !r.ok && notify({ level: "error", title: "IMPORT FAILED", text: r.error ?? file.name }, 6000));
+          }
+          e.target.value = "";
+        }}
+      />
+    </>
+  );
+}
+
 function Shelf() {
   const [offset, setOffset] = useState(0);
-  const visible = 9;
-  const items = OBJECT_CATALOG;
+  const library = useArc((s) => s.state?.library ?? EMPTY);
+  const thumbs = useArc((s) => s.state?.thumbs);
+  const visible = 8;
+  const items = [...library.map((m) => ({ id: m.id, name: m.name, imported: true })), ...OBJECT_CATALOG.map((o) => ({ id: o.id, name: o.name, imported: false }))];
   const page = items.slice(offset, offset + visible);
   return (
     <div className="shelf arc-ui-block">
+      <ImportButton />
       <button className="shelf__nav" disabled={offset === 0} onClick={() => setOffset((o) => Math.max(0, o - 3))} aria-label="Previous models">
         <Icon.Chevron width={18} height={18} style={{ transform: "scaleX(-1)" }} />
       </button>
       {page.map((o) => (
-        <button key={o.id} className="shelf__item" onClick={() => playgroundAction({ action: "SPAWN_OBJECT", object: o.id })} title={`Spawn ${o.name}`}>
-          <ObjectGlyph kind={o.id} />
+        <button key={o.id} className={`shelf__item ${o.imported ? "is-imported" : ""}`} onClick={() => playgroundAction({ action: "SPAWN_OBJECT", object: o.id })} title={`Spawn ${o.name}`}>
+          {thumbs?.[o.id] ? <img src={thumbs[o.id]} alt="" className="shelf__thumb" /> : <ObjectGlyph kind={o.id} />}
           <span>{o.name}</span>
         </button>
       ))}
@@ -135,6 +168,8 @@ function Shelf() {
 }
 
 export function PlaygroundOverlay() {
+  const diving = useArc((s) => Boolean(s.state?.deepDive.active));
+  if (diving) return <DeepDiveOverlay />;
   return (
     <div className="pg-overlay">
       <div className="pg-overlay__left">
@@ -145,6 +180,9 @@ export function PlaygroundOverlay() {
           </button>
           <button className="btn btn--tool" onClick={() => playgroundAction({ action: "CLEAR_SCENE" })}>
             <Icon.Trash width={16} height={16} /> CLEAR
+          </button>
+          <button className="btn btn--tool btn--dive" onClick={() => playgroundAction({ action: "DEEP_DIVE", enabled: true })}>
+            <Icon.Dive width={16} height={16} /> DEEP DIVE
           </button>
         </div>
       </div>

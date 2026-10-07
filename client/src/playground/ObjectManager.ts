@@ -1,10 +1,11 @@
 import * as THREE from "three";
 import { catalogEntry, resolveCatalogId, resolveCountry } from "@shared/catalog";
-import type { PlaygroundAction, SceneObject, SceneSnapshot } from "@shared/types";
+import type { LibraryModel, PlaygroundAction, SceneObject, SceneSnapshot } from "@shared/types";
 import { Emitter } from "../core/emitter";
 import { build } from "./objects/factory";
 import type { BuiltObject } from "./objects/types";
 import { holoMaterial } from "./holo";
+import { buildImported } from "./ModelLoader";
 
 export interface ArcObject {
   id: string;
@@ -27,6 +28,7 @@ interface ObjectEvents extends Record<string, unknown> {
   selection: ArcObject | null;
   location: { name: string; items: { label: string; value: string }[] } | null;
   message: { level: "info" | "warning"; text: string };
+  loaded: ArcObject;
 }
 
 const SLOTS = [
@@ -54,6 +56,8 @@ export class ObjectManager extends Emitter<ObjectEvents> {
   private readonly selectionRing: THREE.Mesh;
   private readonly hoverRing: THREE.Mesh;
   private readonly scanRings: { mesh: THREE.Mesh; obj: ArcObject }[] = [];
+  /** Imported models by library id (wired to the shared library state). */
+  modelLookup: (id: string) => LibraryModel | undefined = () => undefined;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -72,7 +76,8 @@ export class ObjectManager extends Emitter<ObjectEvents> {
   // ─── Lifecycle ───
 
   spawn(kind: string, init?: Partial<SceneObject>, animate = true): ArcObject | null {
-    const resolved = catalogEntry(kind) ? kind : resolveCatalogId(kind);
+    const imported = kind.startsWith("m-") ? this.modelLookup(kind) : undefined;
+    const resolved = imported ? kind : catalogEntry(kind) ? kind : resolveCatalogId(kind);
     if (!resolved) {
       this.emit("message", { level: "warning", text: `Unknown object "${kind}"` });
       return null;
@@ -81,9 +86,10 @@ export class ObjectManager extends Emitter<ObjectEvents> {
       this.emit("message", { level: "warning", text: "Playground is full — delete something first" });
       return null;
     }
-    const built = build(resolved);
+    // Imported models load asynchronously into a placeholder (a holographic sphere until ready).
+    const built = imported ? this.placeholder() : build(resolved);
     if (!built) return null;
-    const entry = catalogEntry(resolved)!;
+    const entry = imported ? { name: imported.name } : catalogEntry(resolved)!;
 
     const root = new THREE.Group();
     root.add(built.content);
@@ -125,12 +131,40 @@ export class ObjectManager extends Emitter<ObjectEvents> {
       built.explode?.(obj.explode);
     }
 
+    root.visible = !this.suppressed;
     this.scene.add(root);
     this.objects.push(obj);
     if (animate) this.addScan(obj);
     this.select(obj);
     this.changed();
+    if (imported) void this.loadInto(obj, imported, init);
     return obj;
+  }
+
+  private placeholder(): BuiltObject {
+    const content = new THREE.Group();
+    const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9, 2), holoMaterial(0x5fd8ff, { opacity: 0.6 }));
+    shell.userData.placeholder = true;
+    content.add(shell);
+    return { content, radius: 1, update: (dt) => void (shell.rotation.y += dt * 1.5) };
+  }
+
+  private async loadInto(obj: ArcObject, model: LibraryModel, init?: Partial<SceneObject>): Promise<void> {
+    try {
+      const built = await buildImported(model);
+      if (obj.removing !== null || !this.objects.includes(obj)) return;
+      obj.root.remove(obj.built.content);
+      obj.built = built;
+      obj.radius = built.radius;
+      obj.root.add(built.content);
+      if (init?.props?.explode && typeof init.props.explode === "number") built.explode?.(obj.explode);
+      this.emit("loaded", obj);
+      this.changed();
+    } catch (err) {
+      console.warn("[playground] model failed to load:", err);
+      this.emit("message", { level: "warning", text: `Couldn't load ${model.name}: ${(err as Error).message || "unsupported file"}` });
+      this.remove(obj);
+    }
   }
 
   remove(obj: ArcObject): void {
@@ -166,6 +200,17 @@ export class ObjectManager extends Emitter<ObjectEvents> {
     this.changed();
   }
 
+  private suppressed = false;
+  /**
+   * Deep Dive hides the whole Playground (objects + selection rings) while it owns the frame —
+   * including objects restored or spawned while it is open.
+   */
+  setSuppressed(on: boolean): void {
+    this.suppressed = on;
+    for (const o of this.objects) o.root.visible = !on;
+    if (on) this.selectionRing.visible = this.hoverRing.visible = false;
+  }
+
   setHovered(obj: ArcObject | null): void {
     this.hovered = obj;
   }
@@ -199,6 +244,8 @@ export class ObjectManager extends Emitter<ObjectEvents> {
   // ─── Commands ───
 
   async apply(cmd: PlaygroundAction): Promise<void> {
+    // Deep Dive commands are handled by the Deep Dive stage, not individual objects.
+    if (cmd.action === "DEEP_DIVE" || cmd.action === "DEEP_DIVE_SET" || cmd.action === "FOCUS_PART" || cmd.action === "CAROUSEL") return;
     if (cmd.action === "SPAWN_OBJECT") {
       this.spawn(cmd.object);
       return;

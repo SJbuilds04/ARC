@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { CountryInfo } from "@shared/catalog";
 import type { BuiltObject } from "./types";
+import { at, part } from "./parts";
 import { canvasTexture, glowSprite, holoTime, proceduralTexture, texture } from "../holo";
 
 const D = Math.PI / 180;
@@ -166,10 +167,18 @@ export function buildEarth(): BuiltObject {
   });
 
   let pulse: THREE.Mesh | null = null;
+  const earthParts = [
+    part("Atmosphere", "Layer of gases that shields life and traps warmth.", 1, at(group, -R * 0.78, R * 0.86, R * 0.2), atmo),
+    part("Oceans", "Cover 71% of the surface and drive the climate.", 1, at(globe, R * 0.2, -R * 0.15, R * 0.97)),
+    part("Clouds", "Water droplets and ice that reflect sunlight.", 2, at(group, R * 0.62, R * 0.62, R * 0.55), clouds),
+    part("North Pole", "Northern end of Earth's spin axis.", 2, at(globe, 0, R * 1.0, 0)),
+    part("Equator", "The 40,075 km line halfway between the poles.", 2, at(globe, R, 0, 0)),
+  ];
 
   return {
     content: group,
     radius: R * 1.15,
+    parts: earthParts,
     props: { atmosphere: true, clouds: true, labels: true },
     setProperty(prop, value) {
       if (prop === "atmosphere") atmo.visible = value;
@@ -316,9 +325,16 @@ export function buildSaturn(): BuiltObject {
   tilt.rotation.z = 26.7 * D;
   tilt.add(planet, rings);
   group.add(tilt);
+  const saturnParts = [
+    part("Rings", "Billions of ice and rock pieces, up to 282,000 km across.", 1, at(tilt, R * 1.9, 0, 0), rings),
+    part("Atmosphere", "Hydrogen and helium with bands of ammonia clouds.", 1, at(tilt, -R * 0.3, R * 0.9, R * 0.3), planet),
+    part("Cassini Division", "A 4,800 km gap between the A and B rings.", 2, at(tilt, -R * 1.72, 0, 0)),
+    part("North pole hexagon", "A six-sided jet stream storm at the north pole.", 2, at(tilt, 0, R * 1.0, 0)),
+  ];
   return {
     content: group,
     radius: R * 2.3,
+    parts: saturnParts,
     props: { rings: true },
     setProperty(prop, value) {
       if (prop !== "rings") return false;
@@ -359,7 +375,12 @@ export function buildSun(): BuiltObject {
   corona.userData.noPick = true;
   const light = new THREE.PointLight(0xffb060, 6, 9, 1.6);
   group.add(sun, corona, light);
-  return { content: group, radius: R * 1.2, update: (dt) => void (sun.rotation.y += dt * 0.03) };
+  const sunParts = [
+    part("Photosphere", "The visible surface, about 5,500 °C.", 1, at(group, R * 0.5, R * 0.5, R * 0.7), sun),
+    part("Corona", "Outer atmosphere, over a million degrees hot.", 1, at(group, -R * 1.25, R * 0.9, 0)),
+    part("Core", "Where hydrogen fuses into helium at 15 million °C.", 2, at(group, 0, 0, 0)),
+  ];
+  return { content: group, radius: R * 1.2, parts: sunParts, update: (dt) => void (sun.rotation.y += dt * 0.03) };
 }
 
 const PLANETS = [
@@ -372,6 +393,17 @@ const PLANETS = [
   { name: "Uranus", r: 0.11, orbit: 2.58, tex: "uranus", color: [140, 210, 225] as const, period: 84 },
   { name: "Neptune", r: 0.105, orbit: 2.9, tex: "neptune", color: [70, 100, 220] as const, period: 165 },
 ];
+
+const PLANET_INFO: Record<string, string> = {
+  Mercury: "Smallest planet and closest to the Sun.",
+  Venus: "Hottest planet, wrapped in thick carbon dioxide clouds.",
+  Earth: "Our home: the only known world with life.",
+  Mars: "The red planet, with the solar system's tallest volcano.",
+  Jupiter: "Largest planet: a gas giant with the Great Red Spot.",
+  Saturn: "Gas giant famous for its bright ring system.",
+  Uranus: "Ice giant that spins on its side.",
+  Neptune: "Windiest planet, with supersonic storms.",
+};
 
 export function buildSolarSystem(): BuiltObject {
   const group = new THREE.Group();
@@ -406,9 +438,14 @@ export function buildSolarSystem(): BuiltObject {
     return { pivot, mesh, line, base: p.orbit, speed: 0.6 / Math.sqrt(p.period) };
   });
 
+  const systemParts = [
+    part("Sun", "The star at the centre: 99.8% of the system's mass.", 1, at(sun, 0, 0.36, 0), sun),
+    ...planets.map((pl, i) => part(PLANETS[i].name, PLANET_INFO[PLANETS[i].name] ?? "", PLANETS[i].r > 0.1 || i === 2 ? 1 : 2, at(pl.mesh, 0, PLANETS[i].r * 1.3, 0), pl.mesh)),
+  ];
   return {
     content: group,
     radius: 3,
+    parts: systemParts,
     props: { orbits: true },
     setProperty(prop, value) {
       if (prop !== "orbits") return false;

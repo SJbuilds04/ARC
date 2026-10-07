@@ -48,7 +48,7 @@ ARC:
  {"action":"EXIT_VISOR"}  {"action":"RECALIBRATE_GAZE"}  {"action":"SET_GAZE","enabled":true|false}
  {"action":"SWITCH_CAMERA","to":"PHONE"|"PC"}
 3D Playground:
- {"action":"SPAWN_OBJECT","object":"<kind>"}   kinds: ${OBJECT_CATALOG.map((o) => o.id).join(", ")}
+ {"action":"SPAWN_OBJECT","object":"<kind>"}   kinds: ${OBJECT_CATALOG.map((o) => o.id).join(", ")}${state.library.length ? `; the user's imported models: ${state.library.map((m) => `"${m.name}"`).join(", ")}` : ""}
  {"action":"DELETE_OBJECT","target":"selected"|"all"|"<id or kind>"}
  {"action":"SELECT_OBJECT","target":"<id or kind>"}
  {"action":"ROTATE_OBJECT","target":"selected","axis":"x"|"y"|"z","amount":<degrees>}
@@ -59,14 +59,21 @@ ARC:
  {"action":"SHOW_LOCATION","target":"earth","location":"<country>"}
  {"action":"EXPLODE_OBJECT","target":"selected","enabled":true|false}
  {"action":"CLEAR_SCENE"}  {"action":"RESET_VIEW"}
+Deep Dive (one model alone on a stage; AR = blue hologram with labelled parts):
+ {"action":"DEEP_DIVE","enabled":true,"model":"<kind or imported model name>"}   // no "model" = open the model carousel
+ {"action":"DEEP_DIVE","enabled":false}
+ {"action":"DEEP_DIVE_SET","ar":true|false,"bg":"<colour name or #hex>","color":"<hologram colour>","labelColor":"<colour>","style":"solid"|"wireframe"|"xray","spin":<0..3>,"detail":"auto"|"few"|"all","explode":<0..1>}   // include only the fields to change
+ {"action":"FOCUS_PART","part":"<part name>"|null}
+ {"action":"CAROUSEL","command":"next"|"previous"|"select"}
 
 Never invent other actions. Never output shell commands. If something isn't possible with these actions, say so briefly.
 "it" / "that" refers to the selected object, else the most recently spawned one.
 
 CONTEXT
 - Time: ${now.toLocaleString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}
-- ARC mode: ${state.mode}${state.mode === "VISOR" ? ` (visor on ${state.visor.device}, gaze ${state.visor.status.gaze}, target ${state.visor.status.target ?? "none"})` : ""}. Active camera: ${state.vision.activeSource}. Phone connected: ${state.devices.PHONE.connected ? "yes" : "no"}.
+- PC space: ${state.spaces.PC}. Phone space: ${state.spaces.PHONE}.${state.visor.device ? ` Visor on ${state.visor.device} (gaze ${state.visor.status.gaze}, target ${state.visor.status.target ?? "none"}).` : ""} Active camera: ${state.vision.activeSource}. Phone connected: ${state.devices.PHONE.connected ? "yes" : "no"}.
 - Playground objects: ${objects.length ? objects.join(", ") : "none"}.
+- Deep Dive: ${state.deepDive.active ? `open${state.deepDive.modelName ? ` on ${state.deepDive.modelName} (AR ${state.deepDive.settings.ar ? "on" : "off"}; parts: ${state.deepDive.parts.map((p) => p.name).slice(0, 30).join(", ") || "loading"})` : " (carousel)"}` : "closed"}.
 - Known apps include: ${knownApps.join(", ")} (any installed app can be opened by name).
 - Recent conversation (context only — resolve "it"/"that"/follow-ups from it):
 ${transcript || "(none)"}

@@ -1,15 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseLocalIntent, stripWake } from "./localIntents";
-import { parseModelOutput } from "./Jarvis";
+import { matchPart, parseModelOutput } from "./Jarvis";
+import { resolveColor } from "./colors";
 import { classify } from "../security/risk";
 import { chunkForSpeech } from "../voice/VoiceProvider";
 import type { ArcState } from "../../shared/types";
 
 const state = (overrides: Partial<ArcState> = {}): ArcState =>
   ({
-    mode: "COMMAND",
+    spaces: { PC: "COMMAND", PHONE: "COMMAND" },
     pending: null,
+    library: [],
+    deepDive: { active: false, modelId: null, modelName: null, settings: {}, parts: [], focusPart: null },
     scene: { objects: [], selectedId: null },
     vision: { activeSource: "PHONE", routes: [], sources: {} },
     devices: { PHONE: { connected: true }, PC: { connected: true } },
@@ -117,4 +120,46 @@ test("visor voice commands", () => {
   assert.deepEqual(actionsOf("disable eye tracking"), [{ action: "SET_GAZE", enabled: false }]);
   const r = parseLocalIntent("activate visor", state());
   assert.equal(r?.kind === "reply" && r.reply, "Activating ARC Visor, boss.");
+});
+
+const diving = (parts: { id: string; name: string; level: 1 | 2 }[] = [], modelId: string | null = "heart") =>
+  state({ deepDive: { active: true, modelId, modelName: "Heart", settings: {} as never, parts, focusPart: null } });
+
+test("deep dive voice commands", () => {
+  assert.deepEqual(actionsOf("deep dive the heart"), [{ action: "DEEP_DIVE", enabled: true, model: "heart" }]);
+  assert.deepEqual(actionsOf("JARVIS, deep dive into my drone"), [{ action: "DEEP_DIVE", enabled: true, model: "drone" }]);
+  assert.deepEqual(actionsOf("open deep dive"), [{ action: "DEEP_DIVE", enabled: true }]);
+  assert.deepEqual(actionsOf("exit deep dive"), [{ action: "DEEP_DIVE", enabled: false }]);
+  // Only inside Deep Dive:
+  assert.equal(actionsOf("turn on ar mode"), null);
+  const s = diving();
+  assert.deepEqual(actionsOf("turn on AR mode", s), [{ action: "DEEP_DIVE_SET", ar: true }]);
+  assert.deepEqual(actionsOf("turn off the hologram", s), [{ action: "DEEP_DIVE_SET", ar: false }]);
+  assert.deepEqual(actionsOf("make the background black", s), [{ action: "DEEP_DIVE_SET", bg: "black" }]);
+  assert.deepEqual(actionsOf("dark blue background", s), [{ action: "DEEP_DIVE_SET", bg: "dark blue" }]);
+  assert.deepEqual(actionsOf("change the hologram colour to green", s), [{ action: "DEEP_DIVE_SET", color: "green" }]);
+  assert.deepEqual(actionsOf("x-ray view", s), [{ action: "DEEP_DIVE_SET", style: "xray" }]);
+  assert.deepEqual(actionsOf("explode it", s), [{ action: "DEEP_DIVE_SET", explode: 1 }]);
+  assert.equal(actionsOf("make the background flurple", s), null); // unknown colour → LLM
+});
+
+test("deep dive parts and carousel by voice", () => {
+  const parts = [
+    { id: "aorta", name: "Aorta", level: 1 as const },
+    { id: "left-ventricle", name: "Left ventricle", level: 1 as const },
+  ];
+  assert.deepEqual(actionsOf("show me the left ventricle", diving(parts)), [{ action: "FOCUS_PART", part: "left-ventricle" }]);
+  assert.deepEqual(actionsOf("what is the aorta", diving(parts)), [{ action: "FOCUS_PART", part: "aorta" }]);
+  assert.equal(matchPart("the ventricle", parts as never)?.id, "left-ventricle");
+  const picking = diving([], null);
+  assert.deepEqual(actionsOf("this one", picking), [{ action: "CAROUSEL", command: "select" }]);
+  assert.deepEqual(actionsOf("next", picking), [{ action: "CAROUSEL", command: "next" }]);
+});
+
+test("colour names resolve to hex", () => {
+  assert.equal(resolveColor("black"), "#000000");
+  assert.equal(resolveColor("the colour dark blue"), "#020c24");
+  assert.equal(resolveColor("#ABC".toLowerCase()), "#aabbcc");
+  assert.equal(resolveColor("bright green"), "#2fe07a");
+  assert.equal(resolveColor("flurple"), null);
 });

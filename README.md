@@ -50,6 +50,46 @@ ARC never reloads, reconnects or resets during any of this — the handoff is a 
 
 ---
 
+## Phone + PC: two spaces, one bridge
+
+The phone and the PC each have **their own space**. Working in the Playground on the PC doesn't drag the phone along, and opening the visor on the phone doesn't take over the PC. Anything you say or tap on the phone that affects the PC runs on the PC: say "JARVIS, open VS Code" on the phone while you work on the PC and it opens there.
+
+* **Phone = touch-first remote + second screen.** It has five tabs:
+  * **Command:** JARVIS, a live card showing what the PC is doing, confirmations and replies.
+  * **Remote:** switch the PC between Console / Playground / Deep Dive. A touchpad turns the model (drag) and zooms (pinch). *Tilt to turn* uses the phone's motion sensor.
+  * **Library:** every model (built-in + yours), import from the phone, **send any file** to the PC (it lands in `Downloads\ARC`), **copy text to the PC clipboard**.
+  * **Visor:** opens the helmet HUD on the phone.
+  * **Settings:** listening, phone hand tracking, status.
+* **Phone hand tracking is off by default.** One hand holds the phone, so hand tracking runs on the PC webcam. The visor uses the phone's front camera for your face only, and you control it by touch. Switch phone hand tracking on in Settings if you want it.
+* **Confirmations go to the device that asked:** full YES/NO there, a compact copy on the other screen.
+* **JARVIS speaks** on the phone in its Command / Visor space and on the PC while the PC runs the Playground. **The phone mic listens** whenever the phone is connected.
+
+## Deep Dive — one model, AR hologram, labelled parts
+
+Playground shows every model with its normal look. **Deep Dive** puts one model alone on a studio stage:
+
+* **Pick a model:** say "deep dive", press DEEP DIVE, or pick on the phone. A ring of holographic cards appears. **Close your fist and move sideways to spin it**, let go and it settles, then pinch the front card or say "this one". Drag, swipe, the ← → keys or the phone also spin it. You can jump straight in with "deep dive the heart" or "deep dive into my drone".
+* **AR mode** ("turn on AR mode") turns the model into a blue hologram: dark translucent core, fresnel glow and edge lines, on a holographic turntable. Labels point out its parts:
+  * zoomed out: the main parts
+  * zoom in: every part
+  * closer still: each part's function
+  * labels sit in two columns beside the model with leader lines, dimmed when the part is behind the model
+* **Focus a part:** click its label, tap it on the phone, or say "show me the left ventricle". The camera flies to it, highlights it and shows its function.
+* **Make it yours:** background colour, hologram colour, label colour, solid / wireframe / x-ray, spin speed, label detail (zoom / main / all) and **exploded view**. Use the panel, the phone, or say "make the background black", "x-ray view", "explode it". Each model remembers its look.
+* Built-in models come with labelled parts (heart, brain, engine, car, Earth, Saturn, Sun, solar system, atom, DNA).
+
+## Your own 3D models
+
+* **Import** `.glb` (best), `.gltf` (self-contained), `.obj`, `.stl` or `.fbx`, up to 200 MB:
+  * drag files onto the PC window
+  * press IMPORT on the Playground shelf or the phone's Library tab
+  * or drop them into the `models/` folder (picked up automatically)
+* ARC centres and scales the model, renders a thumbnail and adds it to the library. Spawn it by name ("spawn my drone") or Deep Dive into it.
+* **Labels for your models:**
+  * **Named parts** (e.g. `Left_Ventricle` → "Left Ventricle") become labels automatically, and JARVIS writes a one-line function for each.
+  * **One-piece models** get labels from **PIN LABEL** in Deep Dive: click a spot on the model, type the name, and JARVIS fills in the function.
+* Your laptop's Intel UHD handles models up to roughly 300–500k triangles smoothly.
+
 ## ARC VISOR — Iron Man helmet HUD
 
 **FACE → HUD · HANDS → actions · VOICE → JARVIS**
@@ -58,7 +98,7 @@ VISOR is an optional third ARC mode; the Playground and JARVIS are the main feat
 
 The eye-tracking cursor is built in but **off by default** (VISOR → SETTINGS → EYE-TRACKING CURSOR). When on, you look to aim and pinch to click, after a short calibration.
 
-* **Enter:** "JARVIS, activate visor", or the VISOR button (PC nav / phone mode bar). **Phone-first:** if the phone is connected, VISOR always opens on the phone (landscape) and uses its front camera, wherever you asked from. Without a phone it runs on the PC webcam, at lower fps (see *Performance*).
+* **Enter:** "JARVIS, activate visor", the VISOR button in the PC nav, or the phone's **Visor** tab. **Phone-first:** if the phone is connected, VISOR always opens on the phone (landscape) and uses its front camera, wherever you asked from. The PC keeps its own space. On the phone the visor tracks your face only, and you tap to choose. Without a phone it runs on the PC webcam (point + pinch), at lower fps (see *Performance*).
 * **Exit:** "JARVIS, exit visor" (or EXIT VISOR) — returns to the mode you came from. ARC never restarts; JARVIS, the socket and history stay as they are.
 * **Boot:** a short real-check sequence (FACE / HAND TRACKING / JARVIS). With the eye-tracking cursor enabled there's also a one-time **9-point gaze calibration** (stored per device; "recalibrate gaze" redoes it).
 * **In the HUD:** system status (left), 3D models, context (what you're targeting), applications (right), JARVIS response (bottom). Look at **VS Code** → `TARGET ACQUIRED` → `TARGET LOCKED` → pinch → confirmation → look at **YES** → pinch → executed.
@@ -122,6 +162,7 @@ ARC/
 * **Which mic listens:** the phone's, whenever the phone is connected. Otherwise the PC's (click or press a key once so the browser allows audio). The command bar says where JARVIS is listening.
 * **Cancelled actions say why:** the timeline shows *Cancelled by voice / touch / gesture*, *No answer — timed out*, or *Replaced by a newer request*, and the server logs it too. Open-hand palm only stops JARVIS talking. It no longer cancels a pending confirmation.
 * Speech-to-text: Groq `whisper-large-v3-turbo`. Common commands are parsed locally (instant, offline-safe); everything else goes to Groq.
+* **JARVIS's voice:** Groq Orpheus when its terms are accepted; otherwise the **Windows voice on the PC** (a British male voice, "George", when installed). Either way it's synthesised on the PC and streamed to the device that speaks. That works reliably on iPhone, where Safari's own speech engine is often silent. The browser voice is only the last fallback.
 
 ### Things to say
 
@@ -133,6 +174,7 @@ ARC/
 | find file *budget* · open file *notes.txt* · create file *ideas* | show India · hide the atmosphere · explode it | remember … · read my notes |
 | delete file *old draft* (hold to confirm) | delete it · clear the scene · reset view | stop / cancel |
 | system info · battery · volume up · next track · type *hello* | "put a car next to the earth and spin both" (Groq) | "explain … in detail" (long answer) |
+| | **Deep Dive:** deep dive the heart · deep dive into my drone · this one / next | turn on AR mode · x-ray view · explode it · make the background black · show me the aorta · show all labels · exit deep dive |
 
 ---
 
@@ -181,6 +223,9 @@ Mouse/touch work everywhere too (drag to move, right/shift-drag to rotate, wheel
 | `ARC_PORT` | `7777` | |
 | `ARC_FILE_ROOTS` | Desktop;Documents;Downloads | `;`-separated |
 | `ARC_AUTO_EXECUTE_LOW_RISK` | `false` | |
+| `ARC_MODELS_DIR` | `ARC/models` | your 3D model library |
+| `ARC_INBOX_DIR` | `Downloads\ARC` | where files sent from the phone land |
+| `ARC_LOCAL_VOICE` | `George` | Windows voice used when Groq's isn't available (`off` to disable) |
 
 > Groq's free tier limits `qwen3.8-27b` to ~7,000 input tokens/minute (≈5 open-ended questions per minute). ARC falls back to the gpt-oss models automatically; local commands don't use tokens at all.
 
@@ -192,11 +237,13 @@ Mouse/touch work everywhere too (drag to move, right/shift-drag to rotate, wheel
 | `npm run build` | Build the client |
 | `npm start` | Run ARC |
 | `npm run dev` | Rebuild client + restart server on change |
-| `npm test` | Unit tests (intent parsing, LLM output validation, risk policy, file sandbox) |
+| `npm test` | Unit tests (intent parsing, Deep Dive commands, per-device spaces, LLM output validation, risk policy, file sandbox) |
 | `npm run typecheck` | TypeScript check for server, client and shared code |
 
 ## Troubleshooting
 
+* **JARVIS silent on the iPhone** — tap ENGAGE ARC once (iOS only allows audio after a tap), check the ring/silent switch, and look at Settings › VOICE: it should say WINDOWS · GEORGE or GROQ.
+* **A model won't load** — prefer `.glb`. A `.gltf` that references separate `.bin`/texture files can't be uploaded as a single file; export it as `.glb` instead.
 * **Phone can't connect** — same Wi‑Fi? Allow Node.js in Windows Firewall (private). Use one of the LAN addresses printed at startup. Some guest/office networks block device-to-device traffic.
 * **Camera / mic blocked on phone** — the page must be opened via `https://`; accept the certificate warning, then allow permissions. iOS: Safari only.
 * **"ARC was opened in another tab"** — one console per role; press *USE ARC HERE* to take over.

@@ -17,6 +17,7 @@ export interface Notice {
 
 export interface Transition {
   kind: "mode" | "camera";
+  device?: DeviceRole;
   from?: ArcMode;
   to?: ArcMode;
   visionFrom: DeviceRole;
@@ -79,6 +80,8 @@ interface ArcStore {
   confirmFlash: { id: string; approved: boolean } | null;
   desktopPanel: "console" | "system" | "devices" | "history";
   visor: VisorUi;
+  /** PC: a label was pinned on a model; waiting for its name. */
+  pinPrompt: { model: string; pos: [number, number, number]; x: number; y: number } | null;
 }
 
 export const useArc = create<ArcStore>(() => ({
@@ -109,6 +112,7 @@ export const useArc = create<ArcStore>(() => ({
   location: null,
   confirmFlash: null,
   desktopPanel: "console",
+  pinPrompt: null,
   visor: {
     phase: "off",
     boot: [],

@@ -33,6 +33,12 @@ export const config = {
     ? list(env("ARC_FILE_ROOTS")).map((p) => path.resolve(p))
     : ["Desktop", "Documents", "Downloads"].map((d) => path.join(home, d)).filter((p) => fs.existsSync(p)),
   createDir: path.join(home, "Documents", "ARC"),
+  /** 3D model library folder (drop .glb/.gltf/.obj/.stl/.fbx files here). */
+  modelsDir: env("ARC_MODELS_DIR") ? path.resolve(env("ARC_MODELS_DIR")) : path.join(ROOT, "models"),
+  /** Where files sent from the phone land (anything that isn't a 3D model). */
+  inboxDir: env("ARC_INBOX_DIR") ? path.resolve(env("ARC_INBOX_DIR")) : path.join(home, "Downloads", "ARC"),
+  /** Offline JARVIS voice (Windows speech) used when the Groq voice is unavailable. "off" disables it. */
+  localVoice: env("ARC_LOCAL_VOICE", "George"),
   autoExecuteLowRisk: env("ARC_AUTO_EXECUTE_LOW_RISK", "false").toLowerCase() === "true",
   clientDist: path.join(ROOT, "client", "dist"),
 };

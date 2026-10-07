@@ -3,6 +3,7 @@ import type { GestureManager } from "../gestures/GestureManager";
 import type { HandPointer } from "../gestures/HandPointer";
 import type { PlaygroundEngine } from "./PlaygroundEngine";
 import type { ArcObject } from "./ObjectManager";
+import type { DeepDive } from "./DeepDive";
 
 const Y = new THREE.Vector3(0, 1, 0);
 
@@ -24,22 +25,51 @@ export class PlaygroundInteraction {
   private rotating: ArcObject | null = null;
   private scaling: { obj: ArcObject; start: number } | null = null;
   private mouse: { mode: "drag" | "rotate" | "orbit"; x: number; y: number; obj: ArcObject | null; offset: THREE.Vector3; moved: number } | null = null;
+  /** Deep Dive input: pinch / drag orbits, fist turns the model (or spins the carousel), two hands zoom. */
+  private dd: { orbit: { x: number; y: number } | null; zoom: number | null; mouse: { x: number; y: number; rotate: boolean; moved: number } | null } = { orbit: null, zoom: null, mouse: null };
 
   constructor(
     private readonly engine: PlaygroundEngine,
     gestures: GestureManager,
     private readonly pointer: HandPointer,
     private readonly isActive: () => boolean,
+    private readonly deepDive: DeepDive | null = null,
   ) {
     const om = engine.objects;
+    const diving = () => this.isActive() && Boolean(this.deepDive?.active);
+    const dd = this.deepDive;
+
+    // ── Deep Dive routing (runs before the object handlers below, which skip while diving) ──
+    if (dd) {
+      gestures.on("pinchstart", ({ x, y }) => {
+        if (!diving() || this.pointer.overUI) return;
+        if (!dd.click(x, y)) this.dd.orbit = { x, y };
+      });
+      gestures.on("pinchmove", ({ x, y }) => {
+        if (!diving() || !this.dd.orbit) return;
+        dd.orbit(x - this.dd.orbit.x, y - this.dd.orbit.y);
+        this.dd.orbit = { x, y };
+      });
+      gestures.on("pinchend", () => void (this.dd.orbit = null));
+      gestures.on("grabmove", ({ dx, dy }) => diving() && dd.grab(dx, dy));
+      gestures.on("grabend", () => diving() && dd.release());
+      gestures.on("twohandstart", () => void (this.dd.zoom = diving() ? 1 : null));
+      gestures.on("twohand", ({ scale }) => {
+        if (this.dd.zoom === null) return;
+        dd.zoom(this.dd.zoom / scale);
+        this.dd.zoom = scale;
+      });
+      gestures.on("twohandend", () => void (this.dd.zoom = null));
+      gestures.on("swipe", ({ direction }) => diving() && dd.step(direction === "right" ? -1 : 1));
+    }
 
     gestures.on("pointer", ({ x, y }) => {
-      if (!this.isActive() || this.gazePoint?.()) return; // in gaze mode hover follows the eyes
+      if (!this.isActive() || diving() || this.gazePoint?.()) return; // in gaze mode hover follows the eyes
       if (!this.drag && !this.rotating) om.setHovered(this.pointer.overUI ? null : engine.pick(x, y));
     });
 
     gestures.on("pinchstart", ({ x, y }) => {
-      if (!this.isActive() || this.pointer.overUI) return;
+      if (!this.isActive() || diving() || this.pointer.overUI) return;
       const gaze = this.gazePoint?.();
       if (gaze) {
         // Look at an object + pinch = select it; then the hand moves it (relative motion).
@@ -83,7 +113,7 @@ export class PlaygroundInteraction {
     });
 
     gestures.on("grabstart", () => {
-      if (!this.isActive()) return;
+      if (!this.isActive() || diving()) return;
       this.rotating = om.hovered ?? om.selected;
       if (this.rotating) om.select(this.rotating);
     });
@@ -101,7 +131,7 @@ export class PlaygroundInteraction {
     });
 
     gestures.on("twohandstart", () => {
-      if (!this.isActive()) return;
+      if (!this.isActive() || diving()) return;
       const obj = om.selected ?? om.hovered;
       this.drag = null;
       this.orbit = null;
@@ -118,7 +148,7 @@ export class PlaygroundInteraction {
     });
 
     gestures.on("palmhold", () => {
-      if (!this.isActive()) return;
+      if (!this.isActive() || diving()) return;
       // Cancel / pause: drop anything held and stop motion.
       this.drag = null;
       this.rotating = null;
@@ -130,7 +160,7 @@ export class PlaygroundInteraction {
     });
 
     gestures.on("swipe", ({ direction }) => {
-      if (!this.isActive()) return;
+      if (!this.isActive() || diving()) return;
       this.cycle(direction === "right" ? 1 : -1);
     });
 
@@ -156,8 +186,15 @@ export class PlaygroundInteraction {
     const norm = (e: PointerEvent | MouseEvent) => ({ x: e.clientX / window.innerWidth, y: e.clientY / window.innerHeight });
 
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    const dd = this.deepDive;
+    const diving = () => Boolean(dd?.active);
     canvas.addEventListener("pointerdown", (e) => {
       const { x, y } = norm(e);
+      if (dd && diving()) {
+        canvas.setPointerCapture(e.pointerId);
+        this.dd.mouse = dd.click(x, y) ? null : { x, y, rotate: e.button === 2 || e.shiftKey, moved: 0 };
+        return;
+      }
       const obj = this.engine.pick(x, y);
       canvas.setPointerCapture(e.pointerId);
       if (obj) om.select(obj);
@@ -174,6 +211,16 @@ export class PlaygroundInteraction {
     });
     canvas.addEventListener("pointermove", (e) => {
       const { x, y } = norm(e);
+      if (dd && diving()) {
+        const m = this.dd.mouse;
+        if (!m) return;
+        if (dd.picking || m.rotate) dd.grab(x - m.x, m.rotate ? y - m.y : 0);
+        else dd.orbit(x - m.x, y - m.y);
+        m.moved += Math.abs(x - m.x) + Math.abs(y - m.y);
+        m.x = x;
+        m.y = y;
+        return;
+      }
       if (!this.mouse) {
         om.setHovered(this.engine.pick(x, y));
         return;
@@ -189,6 +236,11 @@ export class PlaygroundInteraction {
       m.y = y;
     });
     const end = () => {
+      if (dd && diving()) {
+        if (this.dd.mouse) dd.release();
+        this.dd.mouse = null;
+        return;
+      }
       if (this.mouse?.obj) om.changed();
       else if (this.mouse && this.mouse.moved < 0.01) om.select(null); // plain click on empty space
       this.mouse = null;
@@ -200,6 +252,11 @@ export class PlaygroundInteraction {
       (e) => {
         e.preventDefault();
         const factor = Math.exp(-e.deltaY * 0.0012);
+        if (dd && diving()) {
+          if (dd.picking) dd.step(e.deltaY > 0 ? 1 : -1);
+          else dd.zoom(1 / factor);
+          return;
+        }
         if (om.selected && !e.altKey) {
           om.selected.target.scale = THREE.MathUtils.clamp(om.selected.target.scale * factor, 0.2, 5);
           om.changed();
@@ -207,6 +264,9 @@ export class PlaygroundInteraction {
       },
       { passive: false },
     );
-    canvas.addEventListener("dblclick", () => this.engine.resetView());
+    canvas.addEventListener("dblclick", () => {
+      if (dd && diving()) dd.onFocus(null);
+      else this.engine.resetView();
+    });
   }
 }

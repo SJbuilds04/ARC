@@ -99,8 +99,8 @@ export class VisorManager extends Emitter<{ face: FaceEvent | null }> {
   private wanted(): { on: boolean; full: boolean } {
     const s = useArc.getState().state;
     if (!s) return { on: false, full: false };
-    if (s.mode === "VISOR" && s.visor.device === this.role) return { on: true, full: true };
-    if (s.mode === "PLAYGROUND" && this.role === "PC" && s.visor.gazeInPlayground && this.settings.gazeEnabled) return { on: true, full: false };
+    if (s.spaces[this.role] === "VISOR") return { on: true, full: true };
+    if (this.role === "PC" && s.spaces.PC === "PLAYGROUND" && s.visor.gazeInPlayground && this.settings.gazeEnabled) return { on: true, full: false };
     return { on: false, full: false };
   }
 
@@ -312,6 +312,7 @@ export class VisorManager extends Emitter<{ face: FaceEvent | null }> {
   }
 
   private handsState(): VisorHands {
+    if (this.role === "PHONE" && !useArc.getState().state?.vision.phoneHands) return "OFF"; // touch-first phone
     if (this.vision.tracker.error) return "UNAVAILABLE";
     const since = performance.now() - this.lastHandAt;
     if (since < 400) return "TRACKING";

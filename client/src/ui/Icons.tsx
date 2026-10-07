@@ -157,6 +157,58 @@ export const Icon = {
       <circle cx="12" cy="12" r="1.5" />
     </svg>
   ),
+  Dive: (p: P) => (
+    <svg {...base(p)}>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="3.5" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+    </svg>
+  ),
+  Library: (p: P) => (
+    <svg {...base(p)}>
+      <rect x="3.5" y="3.5" width="7" height="7" />
+      <rect x="13.5" y="3.5" width="7" height="7" />
+      <rect x="3.5" y="13.5" width="7" height="7" />
+      <path d="M17 13.5v7M13.5 17h7" />
+    </svg>
+  ),
+  Remote: (p: P) => (
+    <svg {...base(p)}>
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M7.5 10v4M5.5 12h4" />
+      <circle cx="15.5" cy="10.5" r="0.9" />
+      <circle cx="17.5" cy="13.5" r="0.9" />
+    </svg>
+  ),
+  Upload: (p: P) => (
+    <svg {...base(p)}>
+      <path d="M12 16V4M7 9l5-5 5 5" />
+      <path d="M4 15v4h16v-4" />
+    </svg>
+  ),
+  Clipboard: (p: P) => (
+    <svg {...base(p)}>
+      <rect x="5" y="4.5" width="14" height="16" rx="1.5" />
+      <path d="M9 4.5V3h6v1.5M8.5 10h7M8.5 13.5h7M8.5 17h4" />
+    </svg>
+  ),
+  Pin: (p: P) => (
+    <svg {...base(p)}>
+      <path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11z" />
+      <circle cx="12" cy="10" r="2.2" />
+    </svg>
+  ),
+  Home: (p: P) => (
+    <svg {...base(p)}>
+      <path d="M4 11l8-7 8 7M6 9.5V20h12V9.5" />
+    </svg>
+  ),
+  Tilt: (p: P) => (
+    <svg {...base(p)}>
+      <rect x="8" y="3" width="8" height="15" rx="1.5" transform="rotate(-18 12 10.5)" />
+      <path d="M4 20c2.5 1.3 5.3 2 8 2s5.5-.7 8-2" />
+    </svg>
+  ),
 };
 
 /** Glyphs for the playground model shelf. */

@@ -7,8 +7,10 @@ import { ClientMessageSchema, type ClientMessage } from "../../shared/schemas";
 import type { DeviceRole, ServerMessage } from "../../shared/types";
 import type { ArcCore } from "../core/ArcCore";
 import type { PairingRegistry } from "../security/pairing";
+import type { ModelLibrary } from "../library/ModelLibrary";
 import type { Jarvis, Outbound } from "../jarvis/Jarvis";
 import { config, lanAddresses } from "../config";
+import { allowedOrigin, isLoopback } from "../http/origin";
 import { memoryUsage, sampleCpu } from "../actions/system";
 import os from "node:os";
 
@@ -27,8 +29,6 @@ interface Client {
   lastAudioAt: number;
 }
 
-const isLoopback = (addr = "") => addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
-
 /**
  * DeviceHub — the persistent WebSocket link between ARC Core and its devices.
  * One socket per device for the life of the session; it carries state, voice,
@@ -44,6 +44,7 @@ export class DeviceHub implements Outbound {
     server: Server,
     private readonly core: ArcCore,
     private readonly pairing: PairingRegistry,
+    private readonly library: ModelLibrary,
   ) {
     server.on("upgrade", (req, socket, head) => this.onUpgrade(req, socket, head));
     this.wss.on("connection", (ws, req) => this.onConnection(ws, req));
@@ -92,22 +93,11 @@ export class DeviceHub implements Outbound {
 
   // ─── Connection lifecycle ───
 
-  private allowedOrigin(origin: string | undefined): boolean {
-    if (!origin) return false;
-    try {
-      const u = new URL(origin);
-      const hosts = new Set(["localhost", "127.0.0.1", os.hostname().toLowerCase(), ...lanAddresses()]);
-      return u.protocol === "https:" && hosts.has(u.hostname.toLowerCase()) && Number(u.port || 443) === config.port;
-    } catch {
-      return false;
-    }
-  }
-
   private onUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
     const path = (req.url ?? "").split("?")[0];
     if (path !== WS_PATH) return; // not ours
     // Blocks other websites open in a browser on this PC from driving ARC via localhost.
-    if (!this.allowedOrigin(req.headers.origin)) {
+    if (!allowedOrigin(req.headers.origin)) {
       socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
       socket.destroy();
       return;
@@ -261,8 +251,8 @@ export class DeviceHub implements Outbound {
         return;
       case "VISOR_STATUS": {
         const { face, gaze, hands, confidence, calibrated, target } = msg;
-        const { mode, visor } = this.core.getState();
-        const runsGaze = (mode === "VISOR" && visor.device === role) || (mode === "PLAYGROUND" && role === "PC");
+        const { spaces, visor } = this.core.getState();
+        const runsGaze = (spaces[role] === "VISOR" && visor.device === role) || (spaces.PC === "PLAYGROUND" && role === "PC");
         if (runsGaze) this.core.setVisorStatus({ face, gaze, hands, confidence, calibrated, target });
         return;
       }
@@ -281,6 +271,39 @@ export class DeviceHub implements Outbound {
           for (const c of this.clients) if (c.deviceId === msg.deviceId) c.ws.close(4004, "Unpaired");
         }
         this.refreshPairingInfo();
+        return;
+      case "SEND_CLIPBOARD":
+        if (role === "PHONE") void jarvis?.clipboard(msg.text, role);
+        return;
+      case "CONTROL": {
+        // Phone as a 3D controller: relay straight to the PC, never queue stale input.
+        if (role !== "PHONE") return;
+        const pc = this.byRole("PC");
+        if (pc && pc.ws.bufferedAmount < 64 * 1024) pc.ws.send(JSON.stringify({ type: "CONTROL", kind: msg.kind, dx: msg.dx, dy: msg.dy, t: msg.t }));
+        return;
+      }
+      case "DEEP_DIVE_PARTS": {
+        if (role !== "PC") return;
+        const model = this.library.get(msg.model);
+        // Fill in functions we already know (JARVIS-written or user-pinned).
+        const parts = msg.parts.map((p) => ({ ...p, info: p.info ?? model?.partInfo[p.name] ?? model?.labels.find((l) => l.id === p.id)?.info }));
+        this.core.setDeepDiveParts(msg.model, parts);
+        void jarvis?.describeParts(msg.model, parts);
+        return;
+      }
+      case "LABEL_ADD": {
+        const label = this.library.addLabel(msg.model, msg.name, msg.pos);
+        if (label) void jarvis?.describeParts(msg.model, [{ id: label.id, name: label.name, level: 1, custom: true }]);
+        return;
+      }
+      case "LABEL_REMOVE":
+        this.library.removeLabel(msg.model, msg.id);
+        return;
+      case "MODEL_DELETE":
+        this.library.delete(msg.model);
+        return;
+      case "MODEL_RENAME":
+        this.library.rename(msg.model, msg.name);
         return;
       case "HELLO":
         return;

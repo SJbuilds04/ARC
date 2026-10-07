@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { BuiltObject } from "./types";
+import { centerOf, part } from "./parts";
 
 interface Part {
   obj: THREE.Object3D;
@@ -166,11 +167,26 @@ export function buildCar(): BuiltObject {
   wrapper.add(car);
   wrapper.scale.setScalar(0.6);
   wrapper.rotation.y = -0.55;
-  return { content: wrapper, radius: 1.45, explode: (a) => explodeParts(parts, a) };
+  const wheels = parts.slice(0, 4).map((p) => p.obj);
+  const carParts = [
+    part("Body", "Aerodynamic shell that shapes airflow and protects the chassis.", 1, centerOf(body, 0.3), body),
+    part("Cabin", "Passenger cell with the glasshouse and roof.", 1, centerOf(cabin, 0.2), cabin),
+    part("Wheels", "Alloy wheels and tyres: grip, braking and steering.", 1, centerOf(wheels[0]), wheels[0]),
+    part("Headlights", "Light the road ahead and signal the car's presence.", 2, centerOf(lights), lights),
+    part("Grille", "Feeds cooling air to the radiator and engine bay.", 2, centerOf(grille), grille),
+    part("Rear spoiler", "Presses the rear down at speed for stability.", 2, centerOf(spoiler), spoiler),
+    part("Diffuser", "Speeds up air under the car to reduce lift.", 2, centerOf(diffuser), diffuser),
+    part("Side mirrors", "Rear view for the driver.", 2, centerOf(mirrors), mirrors),
+    part("Exhaust", "Carries burnt gases out of the engine.", 2, centerOf(exhaust), exhaust),
+    part("Splitter", "Front lip that manages air under the nose.", 2, centerOf(splitter), splitter),
+  ];
+  return { content: wrapper, radius: 1.45, parts: carParts, explode: (a) => explodeParts(parts, a) };
 }
 
 /** V8: aluminium block/heads, crinkle-red valve covers, steel headers, belt drive. */
 export function buildEngine(): BuiltObject {
+  let firstBank: { head: THREE.Object3D; cover: THREE.Object3D; piston: THREE.Object3D | null; pipe: THREE.Object3D } | null = null;
+  const chromeMat = chrome();
   const engine = new THREE.Group();
   const parts: Part[] = [];
   const add = (obj: THREE.Object3D, out: THREE.Vector3) => {
@@ -207,7 +223,7 @@ export function buildEngine(): BuiltObject {
       const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.6, 32), steel());
       cyl.position.set(x, 0.25, 0);
       bank.add(cyl);
-      const piston = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.135, 0.16, 28), chrome());
+      const piston = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.135, 0.16, 28), chromeMat);
       piston.position.set(x, 0.2, 0);
       bank.add(piston);
       parts.push({ obj: piston, home: piston.position.clone(), out: new THREE.Vector3(0, 0.5, 0) });
@@ -218,6 +234,7 @@ export function buildEngine(): BuiltObject {
     }
     add(bank, new THREE.Vector3(0, 0.45, side * 0.55));
     parts.push({ obj: cover, home: cover.position.clone(), out: new THREE.Vector3(0, 0.55, 0) });
+    if (side === 1) firstBank = { head, cover, piston: bank.children.find((c) => (c as THREE.Mesh).isMesh && (c as THREE.Mesh).material === chromeMat) ?? null, pipe: bank.children[bank.children.length - 1] };
   }
 
   const intake = new THREE.Group();
@@ -255,9 +272,25 @@ export function buildEngine(): BuiltObject {
   add(flywheel, new THREE.Vector3(-0.7, 0, 0));
 
   engine.scale.setScalar(0.9);
+  const fb = firstBank as { head: THREE.Object3D; cover: THREE.Object3D; piston: THREE.Object3D | null; pipe: THREE.Object3D } | null;
+  const engineParts = [
+    part("Engine block", "Houses the cylinders: the engine's main structure.", 1, centerOf(block, 0.2), block),
+    part("Crankshaft", "Turns the pistons' up-and-down motion into rotation.", 1, centerOf(crank), crank),
+    part("Intake manifold", "Delivers air to every cylinder.", 1, centerOf(intake, 0.3), intake),
+    ...(fb ? [part("Valve covers", "Seal the valvetrain on top of the cylinder heads.", 1, centerOf(fb.cover, 0.4), fb.cover)] : []),
+    ...(fb?.piston ? [part("Pistons", "Driven down by combustion to power the crankshaft.", 2, centerOf(fb.piston), fb.piston)] : []),
+    ...(fb ? [part("Cylinder heads", "Hold the valves and spark plugs above each cylinder.", 2, centerOf(fb.head), fb.head)] : []),
+    ...(fb ? [part("Exhaust headers", "Carry hot exhaust gases away from the cylinders.", 2, centerOf(fb.pipe), fb.pipe)] : []),
+    part("Throttle body", "Valve that controls how much air enters the engine.", 2, centerOf(throttle), throttle),
+    part("Oil pan", "Reservoir that holds and cools the engine oil.", 2, centerOf(oilPan), oilPan),
+    part("Flywheel", "Smooths rotation and connects to the transmission.", 2, centerOf(flywheel), flywheel),
+    part("Alternator", "Generates electricity and charges the battery.", 2, centerOf(alt), alt),
+    part("Drive belt", "Turns the alternator and pumps from the crankshaft.", 2, centerOf(belt), belt),
+  ];
   return {
     content: engine,
     radius: 1.3,
+    parts: engineParts,
     explode: (a) => explodeParts(parts, a),
     update(dt) {
       crank.rotation.x += dt * 4;

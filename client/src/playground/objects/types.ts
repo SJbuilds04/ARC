@@ -1,5 +1,6 @@
 import type * as THREE from "three";
 import type { CountryInfo } from "@shared/catalog";
+import type { PartAnchor } from "./parts";
 
 /** What an object builder returns. The ObjectManager wraps it in a transform root. */
 export interface BuiltObject {
@@ -14,6 +15,8 @@ export interface BuiltObject {
   /** Highlight a country; returns the root rotation that faces it toward the viewer. */
   showLocation?(country: CountryInfo): Promise<THREE.Euler | null>;
   update?(dt: number, t: number): void;
+  /** Labelled parts for Deep Dive AR mode. */
+  parts?: PartAnchor[];
 }
 
 export type Builder = () => BuiltObject;

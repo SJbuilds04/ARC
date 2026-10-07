@@ -9,3 +9,6 @@ client/public/mediapipe/
 client/public/textures/
 client/public/geo/
 *.log
+# Your 3D model library (drop files here; not committed)
+/models/
+client/public/draco/

@@ -10,6 +10,13 @@ import { glowSprite, holoTime } from "./holo";
 const FLOOR_Y = -1.15;
 const HOME = { azimuth: 0, elevation: 0.17, distance: 6.6, target: new THREE.Vector3(0, 0.15, -0.4) };
 
+export interface View {
+  azimuth: number;
+  elevation: number;
+  distance: number;
+  target: THREE.Vector3;
+}
+
 /**
  * PlaygroundEngine — the 3D spatial workspace on the PC. Created once and kept
  * alive for the whole session; leaving playground mode only pauses rendering.
@@ -25,6 +32,12 @@ export class PlaygroundEngine {
   private clock = new THREE.Clock();
   private raycaster = new THREE.Raycaster();
   private particles: THREE.Points;
+  private floor: THREE.Group;
+  private milkyWay: THREE.Texture | null = null;
+  private zoomLimits = { min: 3, max: 14 };
+  private elevationLimits = { min: -0.05, max: 1.2 };
+  /** Deep Dive (or anything else) takes over the frame: objects are hidden and not updated. */
+  frameHook: ((dt: number, t: number) => void) | null = null;
   private active = false;
   private host: HTMLElement | null = null;
   private resizeObserver = new ResizeObserver(() => this.resize());
@@ -68,12 +81,16 @@ export class PlaygroundEngine {
     new THREE.TextureLoader().load("/textures/2k_stars_milky_way.jpg", (tex) => {
       tex.mapping = THREE.EquirectangularReflectionMapping;
       tex.colorSpace = THREE.SRGBColorSpace;
-      this.scene.background = tex;
-      this.scene.backgroundIntensity = 0.16;
+      this.milkyWay = tex;
+      if (!this.studio) {
+        this.scene.background = tex;
+        this.scene.backgroundIntensity = 0.16;
+      }
     });
 
     this.setupLights();
-    this.scene.add(this.buildFloor());
+    this.floor = this.buildFloor();
+    this.scene.add(this.floor);
     this.particles = this.buildParticles();
     this.scene.add(this.particles);
     this.objects = new ObjectManager(this.scene, FLOOR_Y, this.camera);
@@ -118,6 +135,21 @@ export class PlaygroundEngine {
     this.composer.setSize(w, h);
     this.bloom.resolution.set(Math.round(w / 2), Math.round(h / 2)); // half-res bloom
     this.camera.aspect = w / h;
+    if (this.centerShift) this.camera.setViewOffset(w, h, -this.centerShift, 0, w, h);
+    this.camera.updateProjectionMatrix();
+  }
+
+  private centerShift = 0;
+  /** Shift the rendered image sideways by `px` (screen pixels) without moving the camera. */
+  setCenterShift(px: number): void {
+    const next = Math.round(px);
+    if (Math.abs(next - this.centerShift) < 2) return;
+    this.centerShift = next;
+    if (next) {
+      const w = Math.max(1, this.host?.clientWidth ?? innerWidth);
+      const h = Math.max(1, this.host?.clientHeight ?? innerHeight);
+      this.camera.setViewOffset(w, h, -next, 0, w, h);
+    } else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
   }
 
@@ -125,7 +157,8 @@ export class PlaygroundEngine {
     const dt = Math.min(0.05, this.clock.getDelta());
     const t = this.clock.elapsedTime;
     holoTime.value = t;
-    this.objects.update(dt, t);
+    if (this.frameHook) this.frameHook(dt, t);
+    else this.objects.update(dt, t);
 
     // Ease the orbit camera.
     const k = 1 - Math.exp(-dt * 6);
@@ -142,6 +175,7 @@ export class PlaygroundEngine {
     }
     pos.needsUpdate = true;
     this.particles.rotation.y += dt * 0.01;
+    this.orbit.target.lerp(this.orbitTarget.target, k);
 
     this.composer.render(dt);
     this.frames++;
@@ -194,15 +228,78 @@ export class PlaygroundEngine {
 
   orbitBy(dAzimuth: number, dElevation: number): void {
     this.orbitTarget.azimuth += dAzimuth;
-    this.orbitTarget.elevation = THREE.MathUtils.clamp(this.orbitTarget.elevation + dElevation, -0.05, 1.2);
+    this.orbitTarget.elevation = THREE.MathUtils.clamp(this.orbitTarget.elevation + dElevation, this.elevationLimits.min, this.elevationLimits.max);
   }
 
   zoomBy(factor: number): void {
-    this.orbitTarget.distance = THREE.MathUtils.clamp(this.orbitTarget.distance * factor, 3, 14);
+    this.orbitTarget.distance = THREE.MathUtils.clamp(this.orbitTarget.distance * factor, this.zoomLimits.min, this.zoomLimits.max);
   }
 
   resetView(): void {
     this.orbitTarget = { ...HOME, target: HOME.target.clone() };
+  }
+
+  /** Current (eased) view and where it is heading. */
+  get view(): View {
+    return { ...this.orbit, target: this.orbit.target.clone() };
+  }
+
+  get viewTarget(): View {
+    return { ...this.orbitTarget, target: this.orbitTarget.target.clone() };
+  }
+
+  /** Fly to a view (or jump, with `immediate`). Azimuth takes the short way round. */
+  setView(v: View, immediate = false): void {
+    const twoPi = Math.PI * 2;
+    let az = v.azimuth;
+    const cur = this.orbitTarget.azimuth;
+    az = cur + ((((az - cur) % twoPi) + twoPi * 1.5) % twoPi) - Math.PI;
+    this.orbitTarget = { azimuth: az, elevation: v.elevation, distance: v.distance, target: v.target.clone() };
+    if (immediate) this.orbit = { ...this.orbitTarget, target: v.target.clone() };
+  }
+
+  setLimits(zoom: { min: number; max: number }, elevation: { min: number; max: number }): void {
+    this.zoomLimits = zoom;
+    this.elevationLimits = elevation;
+  }
+
+  private studio = false;
+  /**
+   * Studio look for Deep Dive: a plain backdrop colour, no floor/particles/fog/stars.
+   * `null` restores the Playground environment.
+   */
+  setStudio(bg: string | null): void {
+    this.studio = bg !== null;
+    this.floor.visible = this.particles.visible = !this.studio;
+    if (this.studio) {
+      this.scene.background = new THREE.Color(bg!);
+      this.scene.backgroundIntensity = 1;
+      this.scene.fog = null;
+    } else {
+      this.scene.background = this.milkyWay ?? new THREE.Color(0x01060e);
+      this.scene.backgroundIntensity = this.milkyWay ? 0.16 : 1;
+      this.scene.fog = new THREE.FogExp2(0x01060e, 0.045);
+    }
+  }
+
+  /** Render the current scene from `camera` into a PNG (for model thumbnails). */
+  async snapshot(camera: THREE.Camera, size = 256, scene: THREE.Scene = this.scene): Promise<Blob | null> {
+    const rt = new THREE.WebGLRenderTarget(size, size, { samples: 4 });
+    rt.texture.colorSpace = THREE.SRGBColorSpace;
+    const prevTarget = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(rt);
+    this.renderer.render(scene, camera);
+    const pixels = new Uint8Array(size * size * 4);
+    this.renderer.readRenderTargetPixels(rt, 0, 0, size, size, pixels);
+    this.renderer.setRenderTarget(prevTarget);
+    rt.dispose();
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d")!;
+    const img = ctx.createImageData(size, size);
+    for (let y = 0; y < size; y++) img.data.set(pixels.subarray((size - 1 - y) * size * 4, (size - y) * size * 4), y * size * 4);
+    ctx.putImageData(img, 0, 0);
+    return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
   }
 
   // ─── Picking ───

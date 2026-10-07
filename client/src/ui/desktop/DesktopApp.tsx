@@ -92,8 +92,9 @@ function Console() {
 }
 
 export function DesktopApp() {
-  const mode = useArc((s) => s.state?.mode ?? "COMMAND");
+  const mode = useArc((s) => s.state?.spaces.PC ?? "COMMAND");
   const panel = useArc((s) => s.desktopPanel);
+  const diving = useArc((s) => Boolean(s.state?.deepDive.active) && s.state?.spaces.PC === "PLAYGROUND");
   const stageRef = useRef<HTMLDivElement>(null);
 
   // The playground canvas is persistent — it is moved into this host, never recreated.
@@ -108,7 +109,7 @@ export function DesktopApp() {
   };
 
   return (
-    <div className={`desktop is-${mode.toLowerCase()}`}>
+    <div className={`desktop is-${mode.toLowerCase()} ${diving ? "is-diving" : ""}`}>
       <div className="desktop__stage" ref={stageRef} />
       <div className="desktop__backdrop" />
       <TopBar />

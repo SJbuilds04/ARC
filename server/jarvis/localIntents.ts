@@ -1,5 +1,6 @@
 import { catalogEntry, resolveCatalogId, resolveCountry } from "../../shared/catalog";
 import type { ArcAction, ArcState } from "../../shared/types";
+import { resolveColor } from "./colors";
 
 /**
  * Deterministic fast path for frequent commands. High-confidence patterns only —
@@ -145,6 +146,63 @@ export function parseLocalIntent(raw: string, state: ArcState): LocalIntent | nu
   if (cam) {
     const to = /phone|mobile/.test(cam[1]) ? "PHONE" : "PC";
     return reply(`Switching to the ${to === "PHONE" ? "phone" : "PC"} camera, boss.`, { action: "SWITCH_CAMERA", to });
+  }
+
+  // ── Deep Dive (one model on its own stage; AR hologram + labels) ──
+  const dd = state.deepDive;
+  if (/^(open |start |enable |activate |turn on |enter )?deep ?dive( mode)?$/.test(t))
+    return reply("Pick a model, boss.", { action: "DEEP_DIVE", enabled: true });
+  if (/^(exit|leave|close|stop|end|disable|turn off|quit)( the)? deep ?dive( mode)?$/.test(t))
+    return reply("Leaving Deep Dive, boss.", { action: "DEEP_DIVE", enabled: false });
+  const dive = t.match(/^(?:deep ?dive|dive)(?: into| in| on| with)?(?: the| my| a)?\s+(.+?)(?: model)?$/);
+  if (dive) {
+    const id = resolveCatalogId(dive[1]);
+    const name = id ? catalogEntry(id)!.name : dive[1];
+    return reply(`Deep diving into ${id ? "the " + name.toLowerCase() : name}, boss.`, { action: "DEEP_DIVE", enabled: true, model: id ?? dive[1] });
+  }
+  if (dd.active) {
+    if (!dd.modelId) {
+      if (/^(this one|that one|select( this| it| that)?( one)?|pick( this| that| it)?( one)?|open( this| it| that)( one)?|choose( this| that)?( one)?|go)$/.test(t))
+        return reply("", { action: "CAROUSEL", command: "select" });
+      if (/^(next|next one|spin( it)?|right)$/.test(t)) return reply("", { action: "CAROUSEL", command: "next" });
+      if (/^(previous|back|last one|previous one|left)$/.test(t)) return reply("", { action: "CAROUSEL", command: "previous" });
+    }
+    const ar = t.match(/^(turn on|enable|activate|show|switch to|start|go|turn off|disable|deactivate|hide|stop|exit|leave)( the)? (ar|a r|hologram|holo|holographic)( mode| view)?$/);
+    if (ar) {
+      const on = !/off|disable|deactivate|hide|stop|exit|leave/.test(ar[1]);
+      return reply(on ? "AR mode on, boss." : "AR mode off, boss.", { action: "DEEP_DIVE_SET", ar: on });
+    }
+    if (/^(ar|a r)( mode)?$/.test(t)) return reply("AR mode on, boss.", { action: "DEEP_DIVE_SET", ar: true });
+    const c1 = t.match(/^(?:make|set|change|turn|paint)(?: the)? (background|bg|hologram|holo|diagram|model|labels?|text)(?: colou?r)?(?: to| into)? (.+)$/);
+    const c2 = t.match(/^(.+?) (background|hologram|labels?)$/);
+    const cm = c1 ? { what: c1[1], value: c1[2] } : c2 ? { what: c2[2], value: c2[1] } : null;
+    if (cm && resolveColor(cm.value)) {
+      const key = /background|bg/.test(cm.what) ? "bg" : /label|text/.test(cm.what) ? "labelColor" : "color";
+      return reply("Done, boss.", { action: "DEEP_DIVE_SET", [key]: cm.value });
+    }
+    const style = t.match(/^(?:show |switch to |turn on |use |go )?(wire ?frame|x-? ?ray|solid|normal)(?: mode| view| style)?$/);
+    if (style) {
+      const s = /wire/.test(style[1]) ? "wireframe" : /x/.test(style[1]) ? "xray" : "solid";
+      return reply(`${s === "xray" ? "X-ray" : s[0].toUpperCase() + s.slice(1)} view, boss.`, { action: "DEEP_DIVE_SET", style: s });
+    }
+    if (/^(explode|exploded view|take (it|that) apart|disassemble( it)?|explode (it|that)|separate( the)? parts)$/.test(t))
+      return reply("Exploded view, boss.", { action: "DEEP_DIVE_SET", explode: 1 });
+    if (/^(assemble( it)?|put (it|that) back( together)?|collapse( it)?|reassemble( it)?)$/.test(t))
+      return reply("Reassembled, boss.", { action: "DEEP_DIVE_SET", explode: 0 });
+    if (/^(stop|pause) (rotating|spinning|the rotation|it)$/.test(t)) return reply("Holding still, boss.", { action: "DEEP_DIVE_SET", spin: 0 });
+    if (/^(spin|rotate|keep rotating|start rotating|auto rotate)( it)?$/.test(t)) return reply("Spinning, boss.", { action: "DEEP_DIVE_SET", spin: 0.4 });
+    if (/^(show )?(all|more) labels$/.test(t)) return reply("All labels, boss.", { action: "DEEP_DIVE_SET", ar: true, detail: "all" });
+    if (/^(show )?(fewer|less|main) labels$/.test(t)) return reply("Main labels only, boss.", { action: "DEEP_DIVE_SET", ar: true, detail: "few" });
+    if (/^(hide|remove|turn off)( the| all)? labels$/.test(t)) return reply("Labels off, boss.", { action: "DEEP_DIVE_SET", ar: false });
+    if (/^(show|turn on)( the)? labels$/.test(t)) return reply("Labels on, boss.", { action: "DEEP_DIVE_SET", ar: true, detail: "auto" });
+    if (/^(zoom out|show (the )?whole (thing|model)|reset( the)? (view|camera)|unfocus)$/.test(t)) return reply("", { action: "FOCUS_PART", part: null });
+    const part = t.match(/^(?:focus on|zoom (?:in )?(?:to|on)|show(?: me)?|where is|what is|what'?s|highlight|go to|point (?:at|to))(?: the)?\s+(.+?)\??$/);
+    if (part && dd.parts.length) {
+      const words = part[1].replace(/^(the|a|an)\s+/, "");
+      const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").trim();
+      const hit = dd.parts.find((p) => norm(p.name) === words) ?? dd.parts.find((p) => norm(p.name).includes(words) || (words.length > 3 && words.includes(norm(p.name))));
+      if (hit) return reply(hit.info ? `${hit.name}. ${hit.info}` : `${hit.name}, boss.`, { action: "FOCUS_PART", part: hit.id });
+    }
   }
 
   // ── Files (before generic open/create/delete) ──

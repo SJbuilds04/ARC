@@ -5,10 +5,13 @@ import { PairingRegistry } from "./security/pairing";
 import { loadOrCreateCertificate } from "./security/certs";
 import { GroqProvider, groqFetch } from "./ai/GroqProvider";
 import { GroqVoice } from "./voice/VoiceProvider";
+import { LocalVoice, VoiceChain } from "./voice/LocalVoice";
 import { ActionExecutor } from "./actions/ActionExecutor";
 import { DeviceHub } from "./websocket/DeviceHub";
 import { Jarvis } from "./jarvis/Jarvis";
 import { serveStatic } from "./http/static";
+import { createApi } from "./http/api";
+import { ModelLibrary } from "./library/ModelLibrary";
 
 /**
  * ARC server — boots once and stays up. Every module below is created exactly
@@ -19,14 +22,24 @@ async function main() {
   const core = new ArcCore();
   const pairing = new PairingRegistry();
   const groq = new GroqProvider(config.groq.apiKey, config.groq.models, config.groq.sttModel);
-  const voice = new GroqVoice(config.groq.apiKey, config.groq.ttsModel, config.groq.ttsVoice);
+  const localVoice = new LocalVoice(config.localVoice);
+  localVoice.warm();
+  const voice = new VoiceChain(new GroqVoice(config.groq.apiKey, config.groq.ttsModel, config.groq.ttsVoice), localVoice);
   const executor = new ActionExecutor();
+  const library = new ModelLibrary();
+  const syncLibrary = () => core.setLibrary(library.models, library.thumbs());
+  library.on("change", syncLibrary);
+  syncLibrary();
 
   const { key, cert } = await loadOrCreateCertificate();
-  const server = https.createServer({ key, cert }, serveStatic);
-  const hub = new DeviceHub(server, core, pairing);
-  const jarvis = new Jarvis(core, groq, groq, voice, executor, hub);
+  let api: ReturnType<typeof createApi> | null = null;
+  const server = https.createServer({ key, cert }, (req, res) => {
+    if (!api?.(req, res)) serveStatic(req, res);
+  });
+  const hub = new DeviceHub(server, core, pairing, library);
+  const jarvis = new Jarvis(core, groq, groq, voice, executor, hub, library);
   hub.attach(jarvis);
+  api = createApi({ library, pairing, onReceived: (info, from) => jarvis.fileReceived(info, from) });
 
   server.listen(config.port, "0.0.0.0", () => {
     const lan = lanAddresses();
@@ -36,6 +49,7 @@ async function main() {
     for (const ip of lan) console.log(`  LAN          https://${ip}:${config.port}`);
     console.log(`  Groq         ${config.groq.apiKey ? `configured · ${config.groq.models[0]}` : "NOT CONFIGURED — set GROQ_API_KEY in .env"}`);
     console.log(`  File access  ${config.fileRoots.join(" | ")}`);
+    console.log(`  Models       ${library.dir} (${library.models.length})`);
     console.log("");
   });
 
@@ -48,6 +62,8 @@ async function main() {
 
   const shutdown = () => {
     core.shutdown();
+    library.flush();
+    localVoice.stop();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);

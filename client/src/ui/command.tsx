@@ -9,6 +9,7 @@ import { Icon } from "./Icons";
 /** JARVIS REQUEST / ⚠ CONFIRM ACTION — the gesture-confirmable decision panel. */
 export function ConfirmPanel({ large = false, hint }: { large?: boolean; hint?: string }) {
   const pending = useArc((s) => s.state?.pending ?? null);
+  const role = useArc((s) => s.role);
   const flash = useArc((s) => s.confirmFlash);
   const [remaining, setRemaining] = useState(0);
 
@@ -36,6 +37,24 @@ export function ConfirmPanel({ large = false, hint }: { large?: boolean; hint?: 
   if (!pending) return null;
 
   const high = pending.risk === "HIGH";
+  // Asked from the other device: a compact copy here (still answerable), the full panel there.
+  if (pending.device && pending.device !== role)
+    return (
+      <div className={`confirm confirm--remote risk-${pending.risk.toLowerCase()}`} role="status">
+        <span className="confirm__kicker">WAITING ON {pending.device === "PHONE" ? "PHONE" : "PC"} · {remaining}s</span>
+        <div className="confirm__title">{pending.title}</div>
+        {!high && (
+          <div className="confirm__buttons">
+            <button className="btn btn--small btn--confirm" onClick={confirm}>
+              YES
+            </button>
+            <button className="btn btn--small btn--deny" onClick={() => respond(false)}>
+              NO
+            </button>
+          </div>
+        )}
+      </div>
+    );
   return (
     <div className={`confirm risk-${pending.risk.toLowerCase()} ${large ? "is-large" : ""}`} role="alertdialog" aria-label={pending.title}>
       <div className="confirm__head">
@@ -71,7 +90,7 @@ export function ConfirmPanel({ large = false, hint }: { large?: boolean; hint?: 
           </>
         )}
       </div>
-      <div className="confirm__hint">{high ? "Pinch and hold CONFIRM · open palm to cancel" : hint ?? "Point and pinch to choose · open palm to cancel"}</div>
+      <div className="confirm__hint">{high ? "Pinch and hold CONFIRM · or tap" : hint ?? (role === "PHONE" ? "Tap to choose · or say “yes” / “no”" : "Point and pinch to choose · or say “yes” / “no”")}</div>
     </div>
   );
 }

@@ -82,7 +82,7 @@ export function StatusHud({ compact = false }: { compact?: boolean }) {
   const srcState = s.vision.sources[src];
   const tracking = s.vision.routes.some((r) => r.source === role);
   const ai = s.services.ai;
-  const fps = role === "PC" && s.mode === "PLAYGROUND" ? local.renderFps : tracking ? local.trackerFps : null;
+  const fps = role === "PC" && s.spaces.PC === "PLAYGROUND" ? local.renderFps : tracking ? local.trackerFps : null;
 
   return (
     <div className={`status-hud ${compact ? "is-compact" : ""}`}>
@@ -91,7 +91,7 @@ export function StatusHud({ compact = false }: { compact?: boolean }) {
       <StatusRow label="CAMERA" value={`${src}${srcState.hands ? ` · ${srcState.hands} HAND${srcState.hands > 1 ? "S" : ""}` : ""}`} />
       <StatusRow label="GESTURES" value={local.trackerReady ? (local.gesture !== "NONE" && tracking ? local.gesture.replace("_", " ") : "READY") : "LOADING"} tone={local.trackerReady ? "ok" : "warn"} />
       <StatusRow label="GROQ" value={ai.status === "ONLINE" ? (ai.latencyMs ? `${ai.latencyMs} ms` : "CONNECTED") : ai.status} tone={toneFor(ai.status)} />
-      {!compact && <StatusRow label="VOICE" value={s.services.voice.engine === "GROQ" ? "GROQ · MALE" : "BROWSER · MALE"} tone={s.services.voice.engine === "GROQ" ? "ok" : "warn"} />}
+      {!compact && <StatusRow label="VOICE" value={s.services.voice.engine === "GROQ" ? "GROQ · MALE" : s.services.voice.engine === "LOCAL" ? "WINDOWS · MALE" : "BROWSER · MALE"} tone={s.services.voice.engine === "BROWSER" ? "warn" : "ok"} />}
       <StatusRow label={role === "PC" ? "PHONE" : "DESKTOP"} value={(role === "PC" ? s.devices.PHONE : s.devices.PC).connected ? "CONNECTED" : "OFFLINE"} tone={(role === "PC" ? s.devices.PHONE : s.devices.PC).connected ? "ok" : "off"} />
       <StatusRow label="LATENCY" value={conn.latencyMs !== undefined ? `${conn.latencyMs} ms` : "—"} />
       {fps !== null && <StatusRow label="FPS" value={fps || "—"} />}

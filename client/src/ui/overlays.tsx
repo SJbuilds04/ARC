@@ -89,8 +89,6 @@ export function BootSequence() {
 /** "VISION HANDOFF" overlay — a layer over the running UI, never a reload. */
 export function Handoff() {
   const transition = useArc((s) => s.transition);
-  const role = useArc((s) => s.role);
-  const visorDevice = useArc((s) => s.state?.visor.device);
   const [step, setStep] = useState<number>(-1);
 
   useEffect(() => {
@@ -106,10 +104,10 @@ export function Handoff() {
 
   if (!transition) return null;
   // On the visor device the VISOR boot sequence is the transition.
-  if (transition.to === "VISOR" && visorDevice === role) return null;
+  if (transition.to === "VISOR") return null;
   const toPlayground = transition.to === "PLAYGROUND";
   const label = (d: string) => (d === "PHONE" ? "PHONE" : "PC");
-  const modeName = transition.kind === "camera" ? "VISION SOURCE" : toPlayground ? "PLAYGROUND MODE" : transition.to === "VISOR" ? "ARC VISOR" : "COMMAND MODE";
+  const modeName = transition.kind === "camera" ? "VISION SOURCE" : toPlayground ? "PLAYGROUND MODE" : "COMMAND MODE";
 
   return (
     <div className={`handoff ${step === -1 ? "is-leaving" : ""}`}>

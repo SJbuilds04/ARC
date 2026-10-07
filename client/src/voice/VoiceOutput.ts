@@ -40,6 +40,8 @@ export class VoiceOutput {
   private lastFull = "";
   private endTimer: number | null = null;
   private voice: SpeechSynthesisVoice | null = null;
+  private primed = false;
+  private watching = false;
 
   constructor(
     private readonly arc: ArcClient,
@@ -69,7 +71,23 @@ export class VoiceOutput {
     src.buffer = silent;
     src.connect(this.ctx.destination);
     src.start();
-    if ("speechSynthesis" in window) speechSynthesis.getVoices();
+    if ("speechSynthesis" in window) {
+      speechSynthesis.getVoices();
+      // iOS Safari only lets speech synthesis talk later if it was started once inside a tap.
+      if (!this.primed) {
+        this.primed = true;
+        const u = new SpeechSynthesisUtterance(" ");
+        u.volume = 0;
+        speechSynthesis.speak(u);
+      }
+    }
+    // iOS suspends (or "interrupts") the audio context when the app is backgrounded or the mic starts.
+    if (!this.watching) {
+      this.watching = true;
+      const wake = () => this.ctx && this.ctx.state !== "running" && void this.ctx.resume().catch(() => undefined);
+      document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && wake());
+      window.addEventListener("pointerdown", wake, { capture: true, passive: true });
+    }
   }
 
   stop(): void {
@@ -94,6 +112,7 @@ export class VoiceOutput {
     this.currentId = msg.id;
     this.lastFull = msg.text;
     this.nextSeq = 0;
+    if (this.ctx && this.ctx.state !== "running") void this.ctx.resume().catch(() => undefined);
     if (msg.audio === "browser" || !this.ctx) {
       this.speakBrowser(msg.text);
       return;
@@ -131,7 +150,10 @@ export class VoiceOutput {
     let buffer: AudioBuffer;
     try {
       buffer = await ctx.decodeAudioData(bytes.buffer);
-    } catch {
+    } catch (err) {
+      // Undecodable audio: say it with the browser voice rather than staying silent.
+      console.warn("[voice] could not decode server audio:", err);
+      if (id === this.currentId && chunk.seq === 0) this.speakBrowser(this.lastFull);
       return;
     }
     if (id !== this.currentId) return;

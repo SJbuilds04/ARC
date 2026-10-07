@@ -78,6 +78,13 @@ fs.mkdirSync(wasmDst, { recursive: true });
 for (const f of fs.readdirSync(wasmSrc)) fs.copyFileSync(path.join(wasmSrc, f), path.join(wasmDst, f));
 console.log("  ✓ mediapipe wasm runtime");
 
+// Draco decoder for compressed glTF/GLB models in the library.
+const dracoSrc = path.join(root, "node_modules", "three", "examples", "jsm", "libs", "draco", "gltf");
+const dracoDst = path.join(pub, "draco");
+fs.mkdirSync(dracoDst, { recursive: true });
+for (const f of fs.readdirSync(dracoSrc)) fs.copyFileSync(path.join(dracoSrc, f), path.join(dracoDst, f));
+console.log("  ✓ draco decoder");
+
 const results = await Promise.all(downloads.map(download));
 const failed = results.filter((ok) => !ok).length;
 console.log(failed ? `Done with ${failed} missing asset(s).` : "All assets ready.");

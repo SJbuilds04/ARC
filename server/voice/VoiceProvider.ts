@@ -9,12 +9,15 @@ export interface VoiceProvider {
   readonly name: string;
   readonly available: boolean;
   readonly unavailableReason?: string;
+  /** Which engine is speaking right now (for the status HUD). */
+  readonly engine?: "GROQ" | "LOCAL";
   synthesize(text: string): Promise<{ mime: string; data: Buffer }>;
 }
 
 /** JARVIS's male voice via Groq (Orpheus). */
 export class GroqVoice implements VoiceProvider {
   readonly name = "groq-orpheus";
+  readonly engine = "GROQ";
   private disabledReason: string | undefined;
 
   constructor(

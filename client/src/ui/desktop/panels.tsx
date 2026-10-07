@@ -105,7 +105,7 @@ export function SystemPanel() {
         <StatusRow label="GROQ" value={s.services.ai.status} tone={toneFor(s.services.ai.status)} />
         <StatusRow label="MODEL" value={s.services.ai.model ?? "—"} />
         <StatusRow label="SPEECH-TO-TEXT" value={s.services.stt.status} tone={toneFor(s.services.stt.status)} />
-        <StatusRow label="VOICE" value={s.services.voice.engine === "GROQ" ? "GROQ ORPHEUS" : "BROWSER FALLBACK"} tone={toneFor(s.services.voice.status)} />
+        <StatusRow label="VOICE" value={s.services.voice.engine === "GROQ" ? "GROQ ORPHEUS" : s.services.voice.engine === "LOCAL" ? "WINDOWS · GEORGE" : "BROWSER FALLBACK"} tone={toneFor(s.services.voice.status)} />
         {s.services.voice.detail && <div className="muted small">{s.services.voice.detail}</div>}
         {s.services.ai.detail && s.services.ai.status !== "ONLINE" && <div className="muted small">{s.services.ai.detail}</div>}
         <StatusRow label="LOW-RISK AUTO RUN" value={s.settings.autoExecuteLowRisk ? "ON" : "OFF · ASK FIRST"} />

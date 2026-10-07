@@ -56,6 +56,8 @@ export const SystemActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("RECALIBRATE_GAZE") }),
   /** Gaze cursor in Playground (on the PC camera). */
   z.object({ action: z.literal("SET_GAZE"), enabled: z.boolean() }),
+  /** Phone hand tracking (off by default — the phone is touch-first). */
+  z.object({ action: z.literal("SET_PHONE_HANDS"), enabled: z.boolean() }),
 ]);
 
 // ─── Playground actions (executed by the 3D engine on the PC display) ───
@@ -93,6 +95,23 @@ export const PlaygroundActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("EXPLODE_OBJECT"), target: objectRef, enabled: z.boolean().default(true) }),
   z.object({ action: z.literal("CLEAR_SCENE") }),
   z.object({ action: z.literal("RESET_VIEW") }),
+  /** Deep Dive: one model on its own stage. No `model` opens the model carousel. */
+  z.object({ action: z.literal("DEEP_DIVE"), enabled: z.boolean().default(true), model: z.string().trim().min(1).max(80).optional() }),
+  z.object({
+    action: z.literal("DEEP_DIVE_SET"),
+    ar: z.boolean().optional(),
+    bg: z.string().trim().max(30).optional(),
+    color: z.string().trim().max(30).optional(),
+    labelColor: z.string().trim().max(30).optional(),
+    style: z.enum(["solid", "wireframe", "xray"]).optional(),
+    spin: z.number().min(0).max(3).optional(),
+    detail: z.enum(["auto", "few", "all"]).optional(),
+    explode: z.number().min(0).max(1).optional(),
+  }),
+  /** Deep Dive model carousel: spin it or pick the model in front. */
+  z.object({ action: z.literal("CAROUSEL"), command: z.enum(["next", "previous", "select"]) }),
+  /** Fly the Deep Dive camera to a part and highlight it (null clears). */
+  z.object({ action: z.literal("FOCUS_PART"), part: z.string().trim().max(80).nullable() }),
 ]);
 
 export const ArcActionSchema = z.union([DesktopActionSchema, SystemActionSchema, PlaygroundActionSchema]);
@@ -109,6 +128,14 @@ export const SceneObjectSchema = z.object({
   rotation: vec3,
   scale: z.number(),
   props: z.record(z.string(), z.union([z.boolean(), z.number(), z.string()])),
+});
+
+export const DeepDivePartSchema = z.object({
+  id: z.string().max(80),
+  name: z.string().max(80),
+  info: z.string().max(200).optional(),
+  level: z.union([z.literal(1), z.literal(2)]),
+  custom: z.boolean().optional(),
 });
 
 export const SceneSnapshotSchema = z.object({
@@ -164,6 +191,28 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("UNPAIR"), deviceId: z.string().max(80) }),
   z.object({ type: z.literal("JARVIS_ACTIVITY"), activity: z.enum(["IDLE", "LISTENING", "SPEAKING"]) }),
   z.object({ type: z.literal("CANCEL") }),
+  /** Phone → PC clipboard. */
+  z.object({ type: z.literal("SEND_CLIPBOARD"), text: z.string().min(1).max(100_000) }),
+  /** Phone as a 3D controller: drag = orbit, pinch = zoom, tilt = orientation (high rate, never queued). */
+  z.object({
+    type: z.literal("CONTROL"),
+    kind: z.enum(["orbit", "zoom", "tilt", "end"]),
+    dx: z.number().min(-10).max(10).default(0),
+    dy: z.number().min(-10).max(10).default(0),
+    t: z.number(),
+  }),
+  /** PC → core: the parts of the model on the Deep Dive stage (labels / phone second screen). */
+  z.object({ type: z.literal("DEEP_DIVE_PARTS"), model: z.string().max(80), parts: z.array(DeepDivePartSchema).max(80) }),
+  /** PC: user pinned a label on an imported model. `pos` is in the model's normalized space. */
+  z.object({
+    type: z.literal("LABEL_ADD"),
+    model: z.string().max(80),
+    name: z.string().trim().min(1).max(60),
+    pos: z.tuple([z.number(), z.number(), z.number()]),
+  }),
+  z.object({ type: z.literal("LABEL_REMOVE"), model: z.string().max(80), id: z.string().max(40) }),
+  z.object({ type: z.literal("MODEL_DELETE"), model: z.string().max(80) }),
+  z.object({ type: z.literal("MODEL_RENAME"), model: z.string().max(80), name: z.string().trim().min(1).max(60) }),
   // Summary of visor tracking (state changes only — gaze coordinates never leave the device).
   z.object({
     type: z.literal("VISOR_STATUS"),
@@ -190,6 +239,7 @@ export type ArcAction = z.infer<typeof ArcActionSchema>;
 export type SceneObject = z.infer<typeof SceneObjectSchema>;
 export type SceneSnapshot = z.infer<typeof SceneSnapshotSchema>;
 export type Hand = z.infer<typeof HandSchema>;
+export type DeepDivePart = z.infer<typeof DeepDivePartSchema>;
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 export type ClientMessageOf<T extends ClientMessage["type"]> = Extract<ClientMessage, { type: T }>;
 

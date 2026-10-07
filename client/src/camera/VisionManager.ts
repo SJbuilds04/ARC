@@ -26,6 +26,10 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
   readonly faceModel: ModelHandle = this.engine.face;
   /** Set by the VISOR while it needs face landmarks. */
   faceWanted = false;
+  /** The phone is touch-first: its camera skips hand tracking unless switched on in settings. */
+  private get handsWanted(): boolean {
+    return this.role !== "PHONE" || Boolean(useArc.getState().state?.vision.phoneHands);
+  }
   private handsBusy = false;
   private faceBusy = false;
   private faceListeners = new Set<(face: FaceFrame | null, now: number) => void>();
@@ -171,7 +175,7 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
     const aspect = this.camera.aspect;
     const video = this.camera.video;
     // Hands and face run in parallel on separate workers; each skips frames while busy.
-    if (!this.handsBusy && this.tracker.ready && this.frameIndex++ % this.handEvery === 0) {
+    if (this.handsWanted && !this.handsBusy && this.tracker.ready && this.frameIndex++ % this.handEvery === 0) {
       this.handsBusy = true;
       const t0 = performance.now();
       this.engine

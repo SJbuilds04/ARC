@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { BuiltObject } from "./types";
+import { at, centerOf, part } from "./parts";
 import { HOLO_CYAN, glowSprite, holoMaterial } from "../holo";
 
 export function buildAtom(): BuiltObject {
@@ -54,9 +55,18 @@ export function buildAtom(): BuiltObject {
   });
   group.add(orbits);
 
+  const firstElectron = electrons[0]?.pivot.children[0];
+  const atomParts = [
+    part("Nucleus", "Dense core of protons and neutrons holding almost all the mass.", 1, at(nucleus, 0, 0.16, 0), nucleus),
+    part("Electron shells", "Energy levels where electrons are most likely to be found.", 1, at(group, 0, 1.05, 0)),
+    ...(firstElectron ? [part("Electron", "Negatively charged particle orbiting the nucleus.", 2, at(firstElectron, 0, 0.06, 0), firstElectron)] : []),
+    part("Protons", "Positive particles; their count defines the element.", 2, at(nucleus, 0.12, -0.08, 0.1)),
+    part("Neutrons", "Neutral particles that help hold the nucleus together.", 2, at(nucleus, -0.12, -0.06, -0.1)),
+  ];
   return {
     content: group,
     radius: 1.15,
+    parts: atomParts,
     props: { orbits: true },
     setProperty(prop, value) {
       if (prop !== "orbits") return false;
@@ -112,9 +122,16 @@ export function buildDna(): BuiltObject {
     tube.userData.noPick = true;
     group.add(tube);
   }
+  const dnaParts = [
+    part("Sugar-phosphate backbone", "The twisted rails of the helix, made of sugar and phosphate.", 1, at(group, radius, 0.6, 0)),
+    part("Base pair", "A-T and G-C pairs that store the genetic code.", 1, at(group, 0, 0, 0)),
+    part("Major groove", "Wide gap where proteins read the DNA sequence.", 2, at(group, -radius * 0.7, -0.5, radius * 0.7)),
+    part("Hydrogen bonds", "Weak bonds that hold the two strands together.", 2, at(group, 0.1, -0.9, 0.05)),
+  ];
   return {
     content: group,
     radius: 1.6,
+    parts: dnaParts,
     update(dt) {
       group.rotation.y += dt * 0.4;
     },
@@ -231,19 +248,23 @@ export function buildHeart(): BuiltObject {
   const coronary = tissue(0xa82a30, { roughness: 0.3, envMapIntensity: 0.5 });
   const fat = tissue(0xc9a25e, { roughness: 0.55, clearcoat: 0.5, envMapIntensity: 0.4 });
   // Aortic arch with its three branches
-  heart.add(vessel([[0.05, 0.75, 0.05], [0.12, 1.25, 0.05], [-0.08, 1.55, -0.12], [-0.5, 1.5, -0.3], [-0.68, 1.05, -0.38]], 0.17, artery));
+  const aorta = vessel([[0.05, 0.75, 0.05], [0.12, 1.25, 0.05], [-0.08, 1.55, -0.12], [-0.5, 1.5, -0.3], [-0.68, 1.05, -0.38]], 0.17, artery);
+  heart.add(aorta);
+  const branches = new THREE.Group();
   for (const [x0, h] of [[0.0, 0.5], [-0.22, 0.45], [-0.42, 0.42]] as [number, number][]) {
-    heart.add(vessel([[x0, 1.52, -0.15], [x0 + 0.02, 1.52 + h * 0.6, -0.15], [x0 + 0.05, 1.52 + h, -0.12]], 0.055, artery, 0.7));
+    branches.add(vessel([[x0, 1.52, -0.15], [x0 + 0.02, 1.52 + h * 0.6, -0.15], [x0 + 0.05, 1.52 + h, -0.12]], 0.055, artery, 0.7));
   }
+  heart.add(branches);
   // Pulmonary trunk and branches
-  heart.add(vessel([[-0.15, 0.6, 0.35], [-0.25, 1.1, 0.35], [-0.5, 1.28, 0.15]], 0.15, vein));
-  heart.add(vessel([[-0.32, 1.18, 0.3], [0.1, 1.3, 0.25], [0.45, 1.22, 0.1]], 0.08, vein, 0.8));
+  const trunk = vessel([[-0.15, 0.6, 0.35], [-0.25, 1.1, 0.35], [-0.5, 1.28, 0.15]], 0.15, vein);
+  const pulmonary = vessel([[-0.32, 1.18, 0.3], [0.1, 1.3, 0.25], [0.45, 1.22, 0.1]], 0.08, vein, 0.8);
   // Superior vena cava
-  heart.add(vessel([[0.55, 0.7, -0.15], [0.6, 1.2, -0.15], [0.58, 1.6, -0.12]], 0.12, vein));
+  const svc = vessel([[0.55, 0.7, -0.15], [0.6, 1.2, -0.15], [0.58, 1.6, -0.12]], 0.12, vein);
+  heart.add(trunk, pulmonary, svc);
   // Coronary arteries and epicardial fat, following the surface
-  heart.add(surfaceVessel([[0.05, 0.55, 0.8], [-0.12, 0.25, 0.95], [-0.3, -0.15, 0.94], [-0.45, -0.55, 0.7], [-0.4, -0.85, 0.35]], 0.03, coronary, 0.45));
-  heart.add(surfaceVessel([[0.05, 0.55, 0.8], [-0.12, 0.25, 0.95], [-0.3, -0.15, 0.94]], 0.05, fat, 0.7));
-  heart.add(surfaceVessel([[0.3, 0.5, 0.8], [0.7, 0.3, 0.62], [0.95, 0.0, 0.2], [0.85, -0.2, -0.45]], 0.03, coronary, 0.55));
+  const lad = surfaceVessel([[0.05, 0.55, 0.8], [-0.12, 0.25, 0.95], [-0.3, -0.15, 0.94], [-0.45, -0.55, 0.7], [-0.4, -0.85, 0.35]], 0.03, coronary, 0.45);
+  const rca = surfaceVessel([[0.3, 0.5, 0.8], [0.7, 0.3, 0.62], [0.95, 0.0, 0.2], [0.85, -0.2, -0.45]], 0.03, coronary, 0.55);
+  heart.add(lad, surfaceVessel([[0.05, 0.55, 0.8], [-0.12, 0.25, 0.95], [-0.3, -0.15, 0.94]], 0.05, fat, 0.7), rca);
   heart.add(surfaceVessel([[-0.2, 0.45, 0.85], [-0.6, 0.2, 0.75], [-0.85, -0.2, 0.45]], 0.022, coronary, 0.5));
 
   const group = new THREE.Group();
@@ -251,9 +272,24 @@ export function buildHeart(): BuiltObject {
   heart.scale.setScalar(0.72);
   group.add(heart);
   group.position.y = -0.15;
+  const parts = [
+    part("Aorta", "Main artery: carries oxygen-rich blood from the left ventricle to the body.", 1, at(heart, -0.1, 1.62, -0.14), aorta),
+    part("Left ventricle", "The strongest chamber: pumps oxygen-rich blood into the aorta.", 1, at(heart, -0.66, -0.35, 0.52)),
+    part("Right ventricle", "Pumps oxygen-poor blood to the lungs through the pulmonary trunk.", 1, at(heart, 0.3, -0.2, 0.86)),
+    part("Right atrium", "Receives oxygen-poor blood returning from the body.", 1, at(heart, 0.8, 0.45, 0.3)),
+    part("Left atrium", "Receives oxygen-rich blood returning from the lungs.", 2, at(heart, -0.55, 0.62, -0.45)),
+    part("Pulmonary trunk", "Carries oxygen-poor blood from the right ventricle toward the lungs.", 2, at(heart, -0.27, 1.05, 0.42), trunk),
+    part("Pulmonary arteries", "Branches that deliver blood to the left and right lungs.", 2, at(heart, 0.25, 1.3, 0.22), pulmonary),
+    part("Superior vena cava", "Returns oxygen-poor blood from the head and arms.", 2, at(heart, 0.6, 1.45, -0.14), svc),
+    part("Arch branches", "Arteries that supply the head, neck and arms.", 2, at(heart, -0.2, 1.98, -0.13), branches),
+    part("Left anterior descending artery", "Coronary artery feeding the front wall of the left ventricle.", 2, at(heart, -0.31, -0.15, 0.97), lad),
+    part("Right coronary artery", "Supplies blood to the right side of the heart muscle.", 2, at(heart, 0.74, 0.3, 0.65), rca),
+    part("Apex", "The heart's lowest tip, formed by the left ventricle.", 2, at(heart, -0.42, -0.98, 0.3)),
+  ];
   return {
     content: group,
     radius: 1.25,
+    parts,
     update(_dt, t) {
       const phase = (t * 1.2) % 1;
       const beat = phase < 0.14 ? Math.sin((phase / 0.14) * Math.PI) : phase > 0.24 && phase < 0.36 ? 0.45 * Math.sin(((phase - 0.24) / 0.12) * Math.PI) : 0;
@@ -319,5 +355,17 @@ export function buildBrain(): BuiltObject {
   stem.position.set(0, -0.62, -0.28);
   stem.rotation.x = 0.35;
   group.add(cortex, cerebellum, stem);
-  return { content: group, radius: 1.2 };
+  const parts = [
+    part("Frontal lobe", "Planning, decisions, personality and voluntary movement.", 1, at(group, 0.25, 0.42, 0.82)),
+    part("Parietal lobe", "Touch, spatial awareness and combining the senses.", 1, at(group, 0.38, 0.6, -0.25)),
+    part("Temporal lobe", "Hearing, understanding language and forming memories.", 1, at(group, 0.82, -0.22, 0.18)),
+    part("Occipital lobe", "Vision: turns signals from the eyes into images.", 1, at(group, 0.22, 0.18, -0.98)),
+    part("Cerebellum", "Balance, coordination and fine motor control.", 1, centerOf(cerebellum), cerebellum),
+    part("Brainstem", "Controls breathing and heart rate; links brain and spinal cord.", 1, centerOf(stem), stem),
+    part("Longitudinal fissure", "Deep groove dividing the left and right hemispheres.", 2, at(group, 0, 0.68, 0.3)),
+    part("Motor cortex", "Strip that sends movement commands to the body.", 2, at(group, 0.34, 0.64, 0.12)),
+    part("Broca's area", "Produces speech (usually in the left hemisphere).", 2, at(group, -0.66, 0.02, 0.58)),
+    part("Wernicke's area", "Understands spoken and written language.", 2, at(group, -0.74, -0.04, -0.28)),
+  ];
+  return { content: group, radius: 1.2, parts };
 }

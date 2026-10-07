@@ -1,0 +1,562 @@
+import * as THREE from "three";
+import { OBJECT_CATALOG, catalogEntry } from "@shared/catalog";
+import type { DeepDivePart, DeepDiveSettings, DeepDiveState, LibraryModel } from "@shared/types";
+import type { PlaygroundEngine, View } from "./PlaygroundEngine";
+import { build } from "./objects/factory";
+import type { BuiltObject } from "./objects/types";
+import type { PartAnchor } from "./objects/parts";
+import { buildImported } from "./ModelLoader";
+import { holoMaterial } from "./holo";
+import { Carousel, type CarouselItem } from "./Carousel";
+import { LabelLayer } from "./LabelLayer";
+
+const STAGE_Y = 0.1;
+const MODEL_RADIUS = 1.35;
+const HOME: View = { azimuth: 0, elevation: 0.14, distance: 6.2, target: new THREE.Vector3(0, STAGE_Y, 0) };
+/** Zoom bands: main parts beyond ALL_PARTS, every part inside it, functions inside WITH_INFO. */
+const ALL_PARTS = 5.0;
+const WITH_INFO = 3.6;
+const MAX_EDGE_TRIANGLES = 90_000;
+
+interface StageModel {
+  id: string;
+  name: string;
+  built: BuiltObject;
+  root: THREE.Group;
+  spinner: THREE.Group;
+  parts: PartAnchor[];
+}
+
+interface Styled {
+  mesh: THREE.Mesh;
+  original: THREE.Material | THREE.Material[];
+  extras: THREE.Object3D[];
+}
+
+/**
+ * Deep Dive — one model alone on a studio stage. The state (which model, AR on/off, colours,
+ * explode…) lives in ARC Core so the phone and voice can drive it; this class makes the PC's
+ * 3D view match that state every frame:
+ *   · AR mode: dark translucent core + fresnel hologram shell + edge lines in the chosen colour,
+ *     with labels that add parts and their functions as you zoom in
+ *   · solid / wireframe / x-ray styles, background colour, exploded view, auto-spin
+ *   · a fist-spun carousel to pick the model
+ */
+export class DeepDive {
+  readonly stage = new THREE.Group();
+  readonly labels: LabelLayer;
+  readonly carousel: Carousel;
+  private model: StageModel | null = null;
+  private loading: string | null = null;
+  private wanted: { active: boolean; modelId: string | null } = { active: false, modelId: null };
+  private settings: DeepDiveSettings | null = null;
+  private explode = 0;
+  private styleKey = "";
+  private styled: Styled[] = [];
+  private styleMats: THREE.Material[] = [];
+  private platform: THREE.Group;
+  private savedView: View | null = null;
+  private focusId: string | null = null;
+  private partInfo = new Map<string, DeepDivePart>();
+  private occlusionFrame = 0;
+  private raycaster = new THREE.Raycaster();
+  private thumbCaptured = new Set<string>();
+  private baking = false;
+  private bakeAfter = 0;
+  /** When the current model landed on stage (wall clock, independent of frame rate). */
+  private stageSince = 0;
+  /** Pin-a-label mode (imported models): the next click on the model places a label. */
+  pinMode = false;
+  /** Free horizontal space between the UI panels (viewport px); labels stay inside it. */
+  private safe: { left: number; right: number } | null = null;
+  private viewMode: "carousel" | "model" | null = null;
+
+  /** Wired by services: library lookup, thumbnails, and callbacks back to ARC Core. */
+  lookup: (id: string) => LibraryModel | undefined = () => undefined;
+  thumbs: () => Record<string, string> = () => ({});
+  onParts: (modelId: string, parts: DeepDivePart[]) => void = () => undefined;
+  onSelect: (modelId: string) => void = () => undefined;
+  onFocus: (partId: string | null) => void = () => undefined;
+  onPin: (modelId: string, pos: [number, number, number], screen: { x: number; y: number }) => void = () => undefined;
+  onThumb: (modelId: string, png: Blob) => void = () => undefined;
+  onMessage: (text: string) => void = () => undefined;
+
+  constructor(private readonly engine: PlaygroundEngine) {
+    this.stage.visible = false;
+    this.stage.position.y = STAGE_Y;
+    engine.scene.add(this.stage);
+    this.platform = buildPlatform();
+    this.platform.position.y = -MODEL_RADIUS - 0.08;
+    this.stage.add(this.platform);
+    this.carousel = new Carousel();
+    this.carousel.group.position.y = 0.32; // sits above the bottom controls
+    this.stage.add(this.carousel.group);
+    this.labels = new LabelLayer((id) => this.onFocus(this.focusId === id ? null : id));
+  }
+
+  get active(): boolean {
+    return this.wanted.active;
+  }
+
+  get picking(): boolean {
+    return this.wanted.active && !this.wanted.modelId;
+  }
+
+  get modelId(): string | null {
+    return this.model?.id ?? null;
+  }
+
+  // ─── State sync (called whenever ARC state changes) ───
+
+  sync(dd: DeepDiveState, inPlayground: boolean, library: LibraryModel[]): void {
+    const active = dd.active && inPlayground;
+    const wasActive = this.wanted.active;
+    this.wanted = { active, modelId: active ? dd.modelId : null };
+    this.settings = dd.settings;
+    this.partInfo = new Map(dd.parts.map((p) => [p.id, p]));
+
+    if (active && !wasActive) this.enter();
+    if (!active && wasActive) this.leave();
+    if (!active) return;
+
+    this.engine.setStudio(dd.settings.bg);
+    this.carousel.setItems(this.carouselItems(library), this.thumbs());
+    this.carousel.group.visible = !dd.modelId;
+
+    if (!dd.modelId && this.viewMode !== "carousel") {
+      this.viewMode = "carousel";
+      this.engine.setView({ ...HOME, distance: this.carousel.radius + 4.4, elevation: 0.04, target: new THREE.Vector3(0, STAGE_Y - 0.1, 0) });
+    }
+    if (dd.modelId !== (this.model?.id ?? null) && dd.modelId !== this.loading) void this.load(dd.modelId);
+    else if (this.model?.id.startsWith("m-")) this.syncPinnedLabels(library);
+
+    if (dd.focusPart !== this.focusId) this.focus(dd.focusPart);
+    this.labels.setInfo(this.partInfo);
+  }
+
+  /** The overlay reports where its panels are, so labels and the model use the space between them. */
+  setSafeArea(left: number, right: number): void {
+    this.safe = right - left > 200 ? { left, right } : null;
+    if (this.active) this.applyShift();
+  }
+
+  private applyShift(): void {
+    const rect = this.engine.canvas.getBoundingClientRect();
+    this.engine.setCenterShift(this.safe && !this.picking ? (this.safe.left + this.safe.right) / 2 - (rect.left + rect.width / 2) : 0);
+  }
+
+  private enter(): void {
+    this.savedView = this.engine.viewTarget;
+    this.viewMode = null;
+    this.engine.setLimits({ min: 1.7, max: 11 }, { min: -1.2, max: 1.35 });
+    this.engine.frameHook = (dt, t) => this.update(dt, t);
+    this.engine.objects.setSuppressed(true);
+    this.stage.visible = true;
+    this.engine.setView(HOME);
+  }
+
+  private leave(): void {
+    this.stage.visible = false;
+    this.engine.frameHook = null;
+    this.engine.setStudio(null);
+    this.engine.setCenterShift(0);
+    this.viewMode = null;
+    this.engine.setLimits({ min: 3, max: 14 }, { min: -0.05, max: 1.2 });
+    this.engine.objects.setSuppressed(false);
+    if (this.savedView) this.engine.setView(this.savedView);
+    this.unload();
+    this.labels.clear();
+    this.focusId = null;
+    this.pinMode = false;
+  }
+
+  private carouselItems(library: LibraryModel[]): CarouselItem[] {
+    return [
+      ...library.map((m) => ({ id: m.id, name: m.name, category: "Your model" })),
+      ...OBJECT_CATALOG.map((e) => ({ id: e.id, name: e.name, category: e.category })),
+    ];
+  }
+
+  // ─── Model ───
+
+  private async load(id: string | null): Promise<void> {
+    this.unload();
+    this.focusId = null;
+    if (!id) {
+      this.engine.setView({ ...HOME, distance: this.carousel.radius + 3.1, elevation: 0.08 });
+      return;
+    }
+    this.loading = id;
+    this.viewMode = "model";
+    let built: BuiltObject | null = null;
+    let name = catalogEntry(id)?.name ?? id;
+    try {
+      const imported = id.startsWith("m-") ? this.lookup(id) : undefined;
+      if (imported) {
+        name = imported.name;
+        built = await buildImported(imported);
+      } else built = build(id);
+    } catch (err) {
+      this.onMessage(`Couldn't load that model: ${(err as Error).message || "unsupported file"}`);
+    }
+    if (this.loading !== id) return; // superseded while loading
+    this.loading = null;
+    if (!built) return;
+
+    // Centre the model on the turntable (builders don't always put their geometry at the origin).
+    built.content.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(built.content);
+    if (!box.isEmpty()) built.content.position.sub(box.getCenter(new THREE.Vector3()));
+    const spinner = new THREE.Group();
+    spinner.add(built.content);
+    const root = new THREE.Group();
+    root.add(spinner);
+    root.scale.setScalar(MODEL_RADIUS / built.radius);
+    this.stage.add(root);
+    this.model = { id, name, built, root, spinner, parts: built.parts ?? [] };
+    this.styleKey = "";
+    this.explode = 0;
+    this.stageSince = performance.now();
+    this.engine.setView(HOME);
+    this.labels.setParts(this.model.parts);
+    this.onParts(id, this.model.parts.map(({ id: pid, name: pname, info, level, custom }) => ({ id: pid, name: pname, info, level, custom })));
+  }
+
+  private unload(): void {
+    if (!this.model) return;
+    this.restyle(null);
+    this.stage.remove(this.model.root);
+    this.model = null;
+    this.labels.setParts([]);
+  }
+
+  /** New / removed pinned labels on an imported model, without reloading it. */
+  private syncPinnedLabels(library: LibraryModel[]): void {
+    const m = this.model;
+    const entry = m ? library.find((x) => x.id === m.id) : undefined;
+    if (!m || !entry) return;
+    const have = new Set(m.parts.filter((p) => p.custom).map((p) => p.id));
+    const want = new Set(entry.labels.map((l) => l.id));
+    if (have.size === want.size && [...want].every((id) => have.has(id))) return;
+    const content = m.built.content;
+    m.parts = m.parts.filter((p) => !p.custom || want.has(p.id));
+    for (const l of entry.labels) {
+      if (have.has(l.id)) continue;
+      const anchor = new THREE.Object3D();
+      anchor.position.set(...l.pos);
+      content.add(anchor);
+      m.parts.push({ id: l.id, name: l.name, info: l.info, level: 1, anchor, custom: true });
+    }
+    this.labels.setParts(m.parts);
+    this.onParts(m.id, m.parts.map(({ id, name, info, level, custom }) => ({ id, name, info, level, custom })));
+  }
+
+  // ─── Frame ───
+
+  private update(dt: number, t: number): void {
+    const s = this.settings;
+    if (!s) return;
+    this.carousel.update(dt);
+    this.applyShift();
+    if (this.picking && !this.baking && (this.bakeAfter -= dt) <= 0) void this.bakeNext();
+    this.platform.visible = Boolean(this.model) && s.ar && !this.focusId;
+    this.platform.rotation.y += dt * 0.15;
+    const m = this.model;
+    if (m) {
+      if (!this.focusId && s.spin) m.spinner.rotation.y += dt * s.spin;
+      if (m.built.explode && Math.abs(this.explode - s.explode) > 1e-3) {
+        this.explode = THREE.MathUtils.lerp(this.explode, s.explode, 1 - Math.exp(-dt * 5));
+        m.built.explode(this.explode);
+      }
+      m.built.update?.(dt, t);
+      const key = `${s.ar}|${s.style}|${s.color}|${this.focusId}`;
+      if (key !== this.styleKey) {
+        this.styleKey = key;
+        this.restyle(s);
+      }
+      this.updateLabels(s);
+      // Thumbnail for the library/carousel, once the model has settled on stage.
+      if (performance.now() - this.stageSince > 1600 && !this.thumbCaptured.has(m.id) && !this.thumbs()[m.id]) {
+        this.thumbCaptured.add(m.id);
+        void this.captureThumb(m);
+      }
+    } else this.labels.hide();
+  }
+
+  private updateLabels(s: DeepDiveSettings): void {
+    const m = this.model!;
+    const show = s.ar || Boolean(this.focusId);
+    if (!show) {
+      this.labels.hide();
+      return;
+    }
+    const cam = this.engine.camera;
+    const distance = this.engine.view.distance;
+    // Zoom decides how much you see: major parts far away, every part closer, functions up close.
+    const allParts = s.detail === "all" || (s.detail === "auto" && distance < ALL_PARTS);
+    const withInfo = distance < WITH_INFO;
+    const focus = this.focusId;
+    const occlude = ++this.occlusionFrame % 8 === 0;
+    const meshes: THREE.Object3D[] = [];
+    if (occlude) m.root.traverse((o) => (o as THREE.Mesh).isMesh && !o.userData.noPick && !o.userData.arExtra && meshes.push(o));
+    const centre = m.root.getWorldPosition(new THREE.Vector3());
+    const radius = MODEL_RADIUS * 1.05;
+    this.labels.layout(
+      this.engine.canvas,
+      cam,
+      centre,
+      radius,
+      // A focused part gets the stage to itself; otherwise zoom decides.
+      (p) => (focus ? p.id === focus : s.ar && (p.level === 1 || allParts)),
+      withInfo,
+      focus,
+      s.labelColor,
+      occlude ? (_p, world) => this.occluded(world, meshes) : null,
+      this.safe,
+    );
+  }
+
+  private occluded(world: THREE.Vector3, meshes: THREE.Object3D[]): boolean {
+    const cam = this.engine.camera.position;
+    const dir = world.clone().sub(cam);
+    const dist = dir.length();
+    this.raycaster.set(cam, dir.normalize());
+    this.raycaster.far = dist - 0.05;
+    return this.raycaster.intersectObjects(meshes, false).length > 0;
+  }
+
+  // ─── Styles: solid · AR hologram · wireframe · x-ray ───
+
+  private restyle(s: DeepDiveSettings | null): void {
+    for (const st of this.styled) {
+      st.mesh.material = st.original;
+      for (const e of st.extras) {
+        st.mesh.remove(e);
+        // Overlays share the model's geometry; only the edge geometry is ours to free.
+        if ((e as THREE.LineSegments).isLineSegments) (e as THREE.LineSegments).geometry.dispose();
+      }
+    }
+    this.styled = [];
+    for (const mat of this.styleMats) mat.dispose();
+    this.styleMats = [];
+    const m = this.model;
+    if (!s || !m) return;
+    const focusMeshes = new Set(m.parts.find((p) => p.id === this.focusId)?.meshes ?? []);
+    if (s.style === "solid" && !s.ar && !focusMeshes.size) return;
+
+    const color = new THREE.Color(s.color);
+    const highlight = new THREE.Color("#ffb347");
+    const core = new THREE.MeshStandardMaterial({ color: color.clone().multiplyScalar(0.08), emissive: color.clone().multiplyScalar(0.05), metalness: 0.4, roughness: 0.4, transparent: true, opacity: 0.6, depthWrite: true });
+    const shell = holoMaterial(color, { opacity: 0.95, fresnel: 2, scan: 1 });
+    const shellHot = holoMaterial(highlight, { opacity: 1, fresnel: 1.6, scan: 1 });
+    const wire = new THREE.MeshBasicMaterial({ color: s.ar ? color : new THREE.Color("#a8dcff"), wireframe: true, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending });
+    const xray = holoMaterial(s.ar ? color : new THREE.Color("#d6ecff"), { opacity: 0.55, fresnel: 1.4, scan: s.ar ? 0.8 : 0 });
+    const lineMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false });
+    this.styleMats = [core, shell, shellHot, wire, xray, lineMat];
+
+    m.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || mesh.userData.arExtra || mesh.userData.placeholder) return;
+      const hot = focusMeshes.has(mesh);
+      const st: Styled = { mesh, original: mesh.material, extras: [] };
+      if (s.style === "wireframe") mesh.material = hot ? shellHot : wire;
+      else if (s.style === "xray") mesh.material = hot ? shellHot : xray;
+      else if (s.ar) {
+        mesh.material = core;
+        const overlay = new THREE.Mesh(mesh.geometry, hot ? shellHot : shell);
+        overlay.userData.arExtra = true;
+        overlay.userData.noPick = true;
+        st.extras.push(overlay);
+        const tris = (mesh.geometry.index?.count ?? mesh.geometry.attributes.position?.count ?? 0) / 3;
+        if (tris > 0 && tris < MAX_EDGE_TRIANGLES) {
+          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, 28), lineMat);
+          edges.userData.arExtra = true;
+          edges.userData.noPick = true;
+          st.extras.push(edges);
+        }
+      } else if (hot) {
+        const overlay = new THREE.Mesh(mesh.geometry, shellHot);
+        overlay.userData.arExtra = true;
+        st.extras.push(overlay);
+      } else return;
+      for (const e of st.extras) mesh.add(e);
+      this.styled.push(st);
+    });
+  }
+
+  // ─── Focus a part ───
+
+  private focus(partId: string | null): void {
+    this.focusId = partId;
+    this.styleKey = "";
+    const m = this.model;
+    const part = partId ? m?.parts.find((p) => p.id === partId) : null;
+    if (!m || !part) {
+      if (m) this.engine.setView(HOME);
+      return;
+    }
+    const centre = m.root.getWorldPosition(new THREE.Vector3());
+    const p = part.anchor.getWorldPosition(new THREE.Vector3());
+    const dir = p.clone().sub(centre);
+    if (dir.lengthSq() < 1e-4) dir.set(0, 0, 1);
+    dir.normalize();
+    this.engine.setView({
+      azimuth: Math.atan2(dir.x, dir.z),
+      elevation: THREE.MathUtils.clamp(Math.asin(dir.y), -0.9, 1.1),
+      distance: 3.7,
+      target: centre.clone().lerp(p, 0.35),
+    });
+  }
+
+  // ─── Input (mouse, hands, phone) ───
+
+  orbit(dx: number, dy: number): void {
+    this.engine.orbitBy(-dx * 3.2, dy * 2.2);
+  }
+
+  zoom(factor: number): void {
+    this.engine.zoomBy(factor);
+  }
+
+  /** Fist: turn the model itself (or spin the carousel while picking). */
+  grab(dx: number, dy: number): void {
+    if (this.picking) {
+      this.carousel.drag(dx);
+      return;
+    }
+    const m = this.model;
+    if (!m) return;
+    m.spinner.rotation.y += dx * 6;
+    m.root.rotation.x = THREE.MathUtils.clamp(m.root.rotation.x + dy * 4, -1.2, 1.2);
+  }
+
+  release(): void {
+    if (this.picking) this.carousel.release();
+  }
+
+  step(n: number): void {
+    if (this.picking) this.carousel.step(n);
+  }
+
+  selectFront(): void {
+    const id = this.carousel.frontId();
+    if (this.picking && id) this.onSelect(id);
+  }
+
+  /** Click / pinch at a viewport-normalized point. Returns true if it was used. */
+  click(nx: number, ny: number): boolean {
+    const ray = this.ray(nx, ny);
+    if (this.picking) {
+      const card = this.carousel.pick(ray);
+      if (card === null) return false;
+      if (card === this.carousel.frontIndex()) this.selectFront();
+      else this.carousel.goTo(card);
+      return true;
+    }
+    if (this.pinMode && this.model) {
+      const meshes: THREE.Object3D[] = [];
+      this.model.root.traverse((o) => (o as THREE.Mesh).isMesh && !o.userData.arExtra && meshes.push(o));
+      const hit = ray.intersectObjects(meshes, false)[0];
+      if (!hit) return false;
+      const local = this.model.built.content.worldToLocal(hit.point.clone());
+      const r = (v: number) => Math.round(v * 1000) / 1000;
+      this.onPin(this.model.id, [r(local.x), r(local.y), r(local.z)], { x: nx * innerWidth, y: ny * innerHeight });
+      this.pinMode = false;
+      return true;
+    }
+    return false;
+  }
+
+  private ray(nx: number, ny: number): THREE.Raycaster {
+    const rect = this.engine.canvas.getBoundingClientRect();
+    const x = ((nx * innerWidth - rect.left) / rect.width) * 2 - 1;
+    const y = -(((ny * innerHeight - rect.top) / rect.height) * 2 - 1);
+    this.raycaster.far = Infinity;
+    this.raycaster.setFromCamera(new THREE.Vector2(x, y), this.engine.camera);
+    return this.raycaster;
+  }
+
+  // ─── Thumbnails ───
+
+  /** While the carousel is open, render missing built-in thumbnails one at a time (off screen). */
+  private async bakeNext(): Promise<void> {
+    const have = this.thumbs();
+    const id = OBJECT_CATALOG.map((e) => e.id).find((x) => !have[x] && !this.thumbCaptured.has(x));
+    if (!id) {
+      this.bakeAfter = 5;
+      return;
+    }
+    this.baking = true;
+    this.thumbCaptured.add(id);
+    try {
+      const built = build(id);
+      if (!built) return;
+      const scene = new THREE.Scene();
+      scene.environment = this.engine.scene.environment;
+      scene.environmentIntensity = 0.5;
+      scene.add(new THREE.HemisphereLight(0x8fc4ff, 0x05080f, 1.6));
+      const key = new THREE.DirectionalLight(0xffffff, 2.4);
+      key.position.set(-3, 5, 4);
+      scene.add(key);
+      const holder = new THREE.Group();
+      holder.add(built.content);
+      holder.scale.setScalar(MODEL_RADIUS / built.radius);
+      holder.position.y = STAGE_Y;
+      scene.add(holder);
+      await new Promise((r) => setTimeout(r, 1200)); // let textures arrive
+      built.update?.(0.016, 1);
+      const cam = new THREE.PerspectiveCamera(36, 1, 0.05, 50);
+      const dist = (MODEL_RADIUS / Math.sin(THREE.MathUtils.degToRad(18))) * 0.92;
+      cam.position.set(dist * 0.35, STAGE_Y + dist * 0.18, dist * 0.92);
+      cam.lookAt(0, STAGE_Y, 0);
+      const blob = await this.engine.snapshot(cam, 256, scene);
+      if (blob) this.onThumb(id, blob);
+      holder.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        mesh.geometry?.dispose?.();
+      });
+    } catch (err) {
+      console.warn("[deep dive] thumbnail failed:", err);
+    } finally {
+      this.baking = false;
+      this.bakeAfter = 1.2;
+    }
+  }
+
+  private async captureThumb(m: StageModel): Promise<void> {
+    const cam = new THREE.PerspectiveCamera(36, 1, 0.05, 50);
+    const dist = MODEL_RADIUS / Math.sin(THREE.MathUtils.degToRad(18)) * 0.92;
+    cam.position.set(dist * 0.35, STAGE_Y + dist * 0.18, dist * 0.92);
+    cam.lookAt(0, STAGE_Y, 0);
+    const prevLabels = this.platform.visible;
+    this.platform.visible = false;
+    const blob = await this.engine.snapshot(cam, 256);
+    this.platform.visible = prevLabels;
+    if (blob) this.onThumb(m.id, blob);
+  }
+}
+
+/** Holographic turntable under the model in AR mode. */
+function buildPlatform(): THREE.Group {
+  const g = new THREE.Group();
+  for (const [r, w, o] of [
+    [1.25, 0.008, 0.45],
+    [1.55, 0.004, 0.25],
+    [1.9, 0.003, 0.14],
+  ] as const) {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(r - w, r + w, 128), holoMaterial(0x5fd8ff, { opacity: o, scan: 0, fresnel: 0.1 }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.userData.noPick = true;
+    g.add(ring);
+  }
+  const ticks = new THREE.Group();
+  for (let i = 0; i < 72; i++) {
+    const tick = new THREE.Mesh(new THREE.PlaneGeometry(0.008, i % 6 ? 0.05 : 0.11), new THREE.MeshBasicMaterial({ color: 0x5fd8ff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    const a = (i / 72) * Math.PI * 2;
+    tick.position.set(Math.cos(a) * 1.42, 0, Math.sin(a) * 1.42);
+    tick.rotation.set(-Math.PI / 2, 0, -a);
+    ticks.add(tick);
+  }
+  g.add(ticks);
+  return g;
+}

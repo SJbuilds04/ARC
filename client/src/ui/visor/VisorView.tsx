@@ -201,6 +201,8 @@ function Subtitle() {
 
 /** ARC VISOR — helmet HUD. An overlay above the (still mounted) device app. */
 export function VisorView() {
+  // The phone visor is touch-only unless phone hand tracking is switched on.
+  const touchOnly = useArc((x) => x.role === "PHONE" && !x.state?.vision.phoneHands);
   const v = useArc((s) => s.visor);
   const [settings, setSettings] = useState(false);
   const setMode = (mode: "COMMAND" | "PLAYGROUND") => send({ action: "SET_MODE", mode });
@@ -237,7 +239,7 @@ export function VisorView() {
       {v.message && v.phase === "tracking" && <div className="visor__message">{v.message}</div>}
 
       <div className="visor__decision">
-        <ConfirmPanel large hint="Point at your choice · pinch to select" />
+        <ConfirmPanel large hint={touchOnly ? "Tap your choice · or say “yes” / “no”" : "Point at your choice · pinch to select"} />
         <LatestExecution />
       </div>
 
