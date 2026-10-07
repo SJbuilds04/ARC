@@ -222,10 +222,9 @@ export class VisionEngine {
   constructor() {
     const canWorker =
       typeof Worker !== "undefined" && typeof OffscreenCanvas !== "undefined" && typeof createImageBitmap === "function" && !new URLSearchParams(location.search).has("mainvision");
-    this.hands = new ModelSlot<Hand[]>(
-      canWorker ? () => new WorkerRunner<Hand[]>("hands", (m) => (m.hands as Hand[]) ?? [], { resize: 480 }) : null,
-      () => new MainHands(),
-    );
+    // Hands run on the main thread, straight off the <video> element, the moment a camera frame
+    // arrives — the original (lowest-latency) path: no frame copy, no worker round trip.
+    this.hands = new ModelSlot<Hand[]>(null, () => new MainHands());
     this.face = new ModelSlot<FaceResult>(canWorker ? () => new WorkerRunner<FaceResult>("face", decodeFace, { returnBitmap: true }) : null, () => new MainFace());
   }
 
