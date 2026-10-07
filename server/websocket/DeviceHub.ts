@@ -287,7 +287,7 @@ export class DeviceHub implements Outbound {
         const model = this.library.get(msg.model);
         // Fill in functions we already know (JARVIS-written or user-pinned).
         const parts = msg.parts.map((p) => ({ ...p, info: p.info ?? model?.partInfo[p.name] ?? model?.labels.find((l) => l.id === p.id)?.info }));
-        this.core.setDeepDiveParts(msg.model, parts);
+        this.core.setDeepDiveParts(msg.model, parts, msg.actions);
         void jarvis?.describeParts(msg.model, parts);
         return;
       }

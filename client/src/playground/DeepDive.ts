@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { OBJECT_CATALOG, catalogEntry } from "@shared/catalog";
-import type { DeepDivePart, DeepDiveSettings, DeepDiveState, LibraryModel } from "@shared/types";
+import { OBJECT_CATALOG, catalogEntry, collectionOf } from "@shared/catalog";
+import type { DeepDivePart, DeepDiveSettings, DeepDiveState, LibraryModel, ModelActionInfo } from "@shared/types";
 import type { PlaygroundEngine, View } from "./PlaygroundEngine";
 import { build } from "./objects/factory";
 import type { BuiltObject } from "./objects/types";
@@ -58,6 +58,8 @@ export class DeepDive {
   private savedView: View | null = null;
   private focusId: string | null = null;
   private partInfo = new Map<string, DeepDivePart>();
+  /** Action values last applied to the model on stage (ARC state is the source of truth). */
+  private applied = new Map<string, boolean | string>();
   private occlusionFrame = 0;
   private raycaster = new THREE.Raycaster();
   private thumbCaptured = new Set<string>();
@@ -74,7 +76,9 @@ export class DeepDive {
   /** Wired by services: library lookup, thumbnails, and callbacks back to ARC Core. */
   lookup: (id: string) => LibraryModel | undefined = () => undefined;
   thumbs: () => Record<string, string> = () => ({});
-  onParts: (modelId: string, parts: DeepDivePart[]) => void = () => undefined;
+  onParts: (modelId: string, parts: DeepDivePart[], actions: ModelActionInfo[]) => void = () => undefined;
+  /** Pinched / clicked a part that drives one of the model's actions. */
+  onAct: (actionId: string) => void = () => undefined;
   onSelect: (modelId: string) => void = () => undefined;
   onFocus: (partId: string | null) => void = () => undefined;
   onPin: (modelId: string, pos: [number, number, number], screen: { x: number; y: number }) => void = () => undefined;
@@ -89,6 +93,10 @@ export class DeepDive {
     this.platform.position.y = -MODEL_RADIUS - 0.08;
     this.stage.add(this.platform);
     this.carousel = new Carousel();
+    this.carousel.makeModel = async (id) => {
+      const imported = id.startsWith("m-") ? this.lookup(id) : undefined;
+      return imported ? buildImported(imported) : build(id);
+    };
     this.carousel.group.position.y = 0.32; // sits above the bottom controls
     this.stage.add(this.carousel.group);
     this.labels = new LabelLayer((id) => this.onFocus(this.focusId === id ? null : id));
@@ -120,7 +128,7 @@ export class DeepDive {
     if (!active) return;
 
     this.engine.setStudio(dd.settings.bg);
-    this.carousel.setItems(this.carouselItems(library), this.thumbs());
+    this.carousel.setItems(this.carouselItems(library, dd.collection), this.thumbs());
     this.carousel.group.visible = !dd.modelId;
 
     if (!dd.modelId && this.viewMode !== "carousel") {
@@ -133,6 +141,16 @@ export class DeepDive {
 
     if (dd.focusPart !== this.focusId) this.focus(dd.focusPart);
     this.labels.setInfo(this.partInfo);
+    // Model actions changed from anywhere (phone, voice, a pinch) → animate the model.
+    const m = this.model;
+    if (m && m.id === dd.modelId && m.built.act) {
+      for (const a of dd.actions) {
+        if (this.applied.get(a.id) !== a.value) {
+          this.applied.set(a.id, a.value);
+          m.built.act(a.id, a.value);
+        }
+      }
+    }
   }
 
   private carouselView(): View {
@@ -175,10 +193,12 @@ export class DeepDive {
     this.pinMode = false;
   }
 
-  private carouselItems(library: LibraryModel[]): CarouselItem[] {
+  private carouselItems(library: LibraryModel[], collection: string | null): CarouselItem[] {
+    const coll = collection ? collectionOf(collection) : undefined;
+    if (collection === "yours") return library.map((m) => ({ id: m.id, name: m.name, category: "Your model" }));
     return [
-      ...library.map((m) => ({ id: m.id, name: m.name, category: "Your model" })),
-      ...OBJECT_CATALOG.map((e) => ({ id: e.id, name: e.name, category: e.category })),
+      ...(coll ? [] : library.map((m) => ({ id: m.id, name: m.name, category: "Your model" }))),
+      ...OBJECT_CATALOG.filter((e) => (coll ? coll.categories.includes(e.category) : e.category !== "Primitive")).map((e) => ({ id: e.id, name: e.name, category: e.category })),
     ];
   }
 
@@ -225,7 +245,12 @@ export class DeepDive {
     this.stageSince = performance.now();
     this.engine.setView(HOME);
     this.labels.setParts(this.model.parts);
-    this.onParts(id, this.model.parts.map(({ id: pid, name: pname, info, level, custom }) => ({ id: pid, name: pname, info, level, custom })));
+    this.applied = new Map((built.actions ?? []).map((a) => [a.id, a.value]));
+    this.onParts(
+      id,
+      this.model.parts.map(({ id: pid, name: pname, info, level, custom }) => ({ id: pid, name: pname, info, level, custom })),
+      (built.actions ?? []).map(({ id: aid, label, kind, options, words, value }) => ({ id: aid, label, kind, options, words, value })),
+    );
   }
 
   private unload(): void {
@@ -254,7 +279,11 @@ export class DeepDive {
       m.parts.push({ id: l.id, name: l.name, info: l.info, level: 1, anchor, custom: true });
     }
     this.labels.setParts(m.parts);
-    this.onParts(m.id, m.parts.map(({ id, name, info, level, custom }) => ({ id, name, info, level, custom })));
+    this.onParts(
+      m.id,
+      m.parts.map(({ id, name, info, level, custom }) => ({ id, name, info, level, custom })),
+      (m.built.actions ?? []).map(({ id, label, kind, options, words }) => ({ id, label, kind, options, words, value: this.applied.get(id) ?? false })),
+    );
   }
 
   // ─── Frame ───
@@ -262,7 +291,7 @@ export class DeepDive {
   private update(dt: number, t: number): void {
     const s = this.settings;
     if (!s) return;
-    this.carousel.update(dt);
+    this.carousel.update(dt, t);
     this.applyShift();
     if (this.picking && !this.baking && (this.bakeAfter -= dt) <= 0) void this.bakeNext();
     this.platform.visible = Boolean(this.model) && s.ar && !this.focusId;
@@ -363,7 +392,7 @@ export class DeepDive {
 
     m.root.traverse((o) => {
       const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh || mesh.userData.arExtra || mesh.userData.placeholder) return;
+      if (!mesh.isMesh || mesh.userData.arExtra || mesh.userData.placeholder || mesh.userData.keepMaterial || !(mesh.material as THREE.Material).visible) return;
       const hot = focusMeshes.has(mesh);
       const st: Styled = { mesh, original: mesh.material, extras: [] };
       if (s.style === "wireframe") mesh.material = hot ? shellHot : wire;
@@ -470,6 +499,26 @@ export class DeepDive {
       this.onPin(this.model.id, [r(local.x), r(local.y), r(local.z)], { x: nx * innerWidth, y: ny * innerHeight });
       this.pinMode = false;
       return true;
+    }
+    // Pinch / click a part that drives an action (the faceplate, the reactor, the detector…).
+    const m = this.model;
+    if (m?.built.actions?.length) {
+      const meshes: THREE.Object3D[] = [];
+      m.root.traverse((o) => (o as THREE.Mesh).isMesh && !o.userData.arExtra && meshes.push(o));
+      const hit = ray.intersectObjects(meshes, false)[0];
+      if (hit) {
+        for (const a of m.built.actions) {
+          if (!a.parts?.length || a.kind === "choice") continue;
+          let o: THREE.Object3D | null = hit.object;
+          while (o && o !== m.root) {
+            if (a.parts.includes(o)) {
+              this.onAct(a.id);
+              return true;
+            }
+            o = o.parent;
+          }
+        }
+      }
     }
     return false;
   }

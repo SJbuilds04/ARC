@@ -56,6 +56,8 @@ export const SystemActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("RECALIBRATE_GAZE") }),
   /** Gaze cursor in Playground (on the PC camera). */
   z.object({ action: z.literal("SET_GAZE"), enabled: z.boolean() }),
+  /** Scene brightness 0..1 (exposure, glow, hologram intensity). Low by default. */
+  z.object({ action: z.literal("SET_BRIGHTNESS"), value: z.number().min(0).max(1) }),
   /** Phone hand tracking (off by default — the phone is touch-first). */
   z.object({ action: z.literal("SET_PHONE_HANDS"), enabled: z.boolean() }),
 ]);
@@ -96,7 +98,15 @@ export const PlaygroundActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("CLEAR_SCENE") }),
   z.object({ action: z.literal("RESET_VIEW") }),
   /** Deep Dive: one model on its own stage. No `model` opens the model carousel. */
-  z.object({ action: z.literal("DEEP_DIVE"), enabled: z.boolean().default(true), model: z.string().trim().min(1).max(80).optional() }),
+  z.object({
+    action: z.literal("DEEP_DIVE"),
+    enabled: z.boolean().default(true),
+    model: z.string().trim().min(1).max(80).optional(),
+    /** Carousel category ("ironman", "space", …); "all" clears it. */
+    collection: z.string().trim().min(1).max(40).optional(),
+  }),
+  /** Interact with the model on stage: open the faceplate, power the reactor, paint it… */
+  z.object({ action: z.literal("MODEL_ACTION"), id: z.string().trim().min(1).max(40), value: z.union([z.boolean(), z.string().max(40)]).optional() }),
   z.object({
     action: z.literal("DEEP_DIVE_SET"),
     ar: z.boolean().optional(),
@@ -130,6 +140,16 @@ export const SceneObjectSchema = z.object({
   rotation: vec3,
   scale: z.number(),
   props: z.record(z.string(), z.union([z.boolean(), z.number(), z.string()])),
+});
+
+export const ModelActionInfoSchema = z.object({
+  id: z.string().max(40),
+  label: z.string().max(40),
+  kind: z.enum(["toggle", "choice", "trigger"]),
+  options: z.array(z.string().max(30)).max(8).optional(),
+  /** Words that name it by voice ("faceplate", "helmet", "mask"). */
+  words: z.array(z.string().max(30)).max(10).optional(),
+  value: z.union([z.boolean(), z.string().max(40)]),
 });
 
 export const DeepDivePartSchema = z.object({
@@ -204,7 +224,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     t: z.number(),
   }),
   /** PC → core: the parts of the model on the Deep Dive stage (labels / phone second screen). */
-  z.object({ type: z.literal("DEEP_DIVE_PARTS"), model: z.string().max(80), parts: z.array(DeepDivePartSchema).max(80) }),
+  z.object({ type: z.literal("DEEP_DIVE_PARTS"), model: z.string().max(80), parts: z.array(DeepDivePartSchema).max(80), actions: z.array(ModelActionInfoSchema).max(12).optional() }),
   /** PC: user pinned a label on an imported model. `pos` is in the model's normalized space. */
   z.object({
     type: z.literal("LABEL_ADD"),
@@ -242,6 +262,7 @@ export type SceneObject = z.infer<typeof SceneObjectSchema>;
 export type SceneSnapshot = z.infer<typeof SceneSnapshotSchema>;
 export type Hand = z.infer<typeof HandSchema>;
 export type DeepDivePart = z.infer<typeof DeepDivePartSchema>;
+export type ModelActionInfo = z.infer<typeof ModelActionInfoSchema>;
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 export type ClientMessageOf<T extends ClientMessage["type"]> = Extract<ClientMessage, { type: T }>;
 

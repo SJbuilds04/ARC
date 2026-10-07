@@ -188,7 +188,7 @@ export function HelmetView() {
             spectrum: spectrumOf(t),
             context: contextOf(),
             target: tr ? { x: tr.left, y: tr.top, w: tr.width, h: tr.height, label: (tgtEl!.getAttribute("aria-label") ?? tgtEl!.textContent ?? "").trim().slice(0, 28) } : null,
-            alert: !hasFace && presence < 0.5 && now - born > 2500 ? "REACQUIRING FACE" : null,
+            alert: !hasFace && now - maskAt > 1500 && now - born > 2500 ? "REACQUIRING FACE" : null,
             rightPanelX,
             compact: H < 520,
           },

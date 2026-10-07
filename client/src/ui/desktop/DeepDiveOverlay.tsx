@@ -3,7 +3,7 @@ import { useArc } from "../../core/store";
 import { arc, deepDive } from "../../core/services";
 import { Panel } from "../primitives";
 import { Icon } from "../Icons";
-import { DeepDiveControls, PartsList, ddAction, useDeepDiveTitle } from "../deepdive";
+import { CollectionTabs, DeepDiveControls, ModelActions, PartsList, ddAction, useDeepDiveTitle } from "../deepdive";
 
 /** Hosts the persistent DOM label layer (created once by the Deep Dive engine). */
 function LabelHost() {
@@ -132,6 +132,7 @@ export function DeepDiveOverlay() {
           <Panel title="DEEP DIVE" className="dd-panel arc-ui-block">
             <div className="dd-panel__kicker">{title.category}</div>
             <div className="dd-panel__name">{title.name}</div>
+            <ModelActions />
             <DeepDiveControls />
             <div className="dd-panel__actions">
               <button className="btn btn--tool" onClick={() => ddAction({ action: "DEEP_DIVE", enabled: true })}>
@@ -173,7 +174,12 @@ export function DeepDiveOverlay() {
           </div>
         </>
       ) : (
-        <CarouselBar />
+        <>
+          <div className="dd-cats-top arc-ui-block">
+            <CollectionTabs />
+          </div>
+          <CarouselBar />
+        </>
       )}
       <PinPrompt />
     </div>

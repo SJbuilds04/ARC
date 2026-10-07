@@ -78,6 +78,22 @@ Playground shows every model with its normal look. **Deep Dive** puts one model 
 * **Make it yours:** background colour, hologram colour, label colour, solid / wireframe / x-ray, spin speed, label detail (zoom / main / all) and **exploded view**. Use the panel, the phone, or say "make the background black", "x-ray view", "explode it". Each model remembers its look.
 * Built-in models come with labelled parts (heart, brain, engine, car, Earth, Saturn, Sun, solar system, atom, DNA).
 
+## Collections & interactive models
+
+* **Categories:** All · Iron Man · Spider-Man · Space · Physics & Quantum · Anatomy · Machines · Your models. The tabs sit above the carousel (PC) and on the phone's Remote tab. By voice: *"JARVIS, pull up everything we have on Iron Man"*, *"show me all the spider man suits"*, *"pull up everything on quantum physics"*, *"show me everything"*.
+* **The carousel is 3D:** every slot is a live model in AR hologram style on a holographic pedestal. Only the models near the front are built, so spinning stays smooth.
+* **Iron Man:** Mark III, Mark 42, Mark 50 Nanotech, Mark 85, Hulkbuster, plus Arc Reactor Mk I and Mk II. Spider-Man: Classic Suit and Iron Spider. Space: Gargantua, the Interstellar black hole (ray-traced gravitational lensing, Doppler-bright disk, photon ring, lensed stars). Physics & Quantum: Young's double slit, Newton's cradle, Newton's prism, a 4D tesseract, a quantum computer. *(These are ARC's own procedural models in the style of the films, not official assets.)*
+* **Interact with them:**
+  * **Suits:** faceplate, repulsors, flight mode, open the armour, paint (Classic / Stealth / Gold / Silver).
+  * **Iron Spider:** waldo legs.
+  * **Reactors:** power, casing.
+  * **Black hole:** disk spin, accretion disk, lensed stars.
+  * **Double slit:** switch on the which-way detector and the interference collapses into two bands; wavelength red / green / violet.
+  * **Cradle:** swing 1–3 balls.
+  * **Quantum computer:** cryostat, qubits.
+  * **Three ways in:** pinch (or click) the part itself, e.g. the faceplate; use the action buttons on the PC or phone; or say *"open the faceplate"*, *"repulsors on"*, *"paint it gold"*, *"stealth mode"*, *"turn on the detector"*, *"open it"*.
+* **Brightness** (low by default) controls exposure, glow and hologram intensity: the BRIGHTNESS slider in Deep Dive, the Playground tools and phone Settings, or *"set brightness to 40%"*, *"brighter"*, *"dim the lights"*.
+
 ## Your own 3D models
 
 * **Import** `.glb` (best), `.gltf` (self-contained), `.obj`, `.stl` or `.fbx`, up to 200 MB:
@@ -111,6 +127,8 @@ The eye-tracking cursor is built in but **off by default** (VISOR → SETTINGS �
 **Performance:** hands and face each run in their own Web Worker, in parallel. ARC picks GPU if it can, otherwise the main-thread GPU path, otherwise CPU. The camera frame and its landmarks are drawn together, so the HUD never trails your face. The hand cursor is One-Euro filtered and drawn at display refresh with short motion prediction. The Playground adapts its render resolution to hold ~60 fps, and on Intel / weak GPUs it starts at 1× resolution with cheaper shadows.
 
 The VISOR status panel shows a live perf line: `CAM 30 · HANDS 30 (WORKER · GPU) · FACE 30 (WORKER · GPU)`. **Video can never be smoother than the camera.** Most laptop webcams top out at 30 fps (≈15 fps in dim light), so on the PC the face video moves at camera speed while the HUD and cursor stay at 60. Phones deliver 60 fps from the front camera, which is why VISOR prefers the phone. If the line shows `CPU`, the browser has no WebGL for MediaPipe: update the GPU driver and enable hardware acceleration in Chrome/Edge.
+
+**Visor face filters:** your face curves with the visor glass, picks up the HUD's light, gets a slow holographic scan sweep, fine scanlines, film grain and colour fringing toward the edges.
 
 **Privacy:** face and eye tracking run entirely on the device that owns the camera. No video or gaze coordinates leave it; only a status summary (face/gaze/hands state, current target name) is sent to ARC Core.
 

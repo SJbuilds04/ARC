@@ -4,6 +4,11 @@ import { buildEarth, buildMars, buildMoon, buildSaturn, buildSolarSystem, buildS
 import { buildAtom, buildBrain, buildDna, buildHeart } from "./science";
 import { buildCar, buildEngine } from "./machines";
 import { holoMesh } from "../holo";
+import { buildHulkbuster, buildIronSpider, buildMark3, buildMark42, buildMark50, buildMark85, buildSpiderClassic } from "./armor";
+import { buildArcReactor, buildArcReactor2 } from "./reactor";
+import { buildBlackHole } from "./blackhole";
+import { buildDoubleSlit, buildNewtonCradle, buildPrism } from "./experiments";
+import { buildQuantumComputer, buildTesseract } from "./futuristic";
 
 const primitive = (geometry: THREE.BufferGeometry, radius: number, edgeThreshold = 22): Builder => () => ({
   content: holoMesh(geometry, undefined, edgeThreshold),
@@ -33,6 +38,21 @@ export const BUILDERS: Record<string, Builder> = {
   brain: buildBrain,
   car: buildCar,
   engine: buildEngine,
+  mark3: buildMark3,
+  mark42: buildMark42,
+  mark50: buildMark50,
+  mark85: buildMark85,
+  hulkbuster: buildHulkbuster,
+  arc_reactor: buildArcReactor,
+  arc_reactor2: buildArcReactor2,
+  spider_classic: buildSpiderClassic,
+  iron_spider: buildIronSpider,
+  black_hole: buildBlackHole,
+  double_slit: buildDoubleSlit,
+  newton_cradle: buildNewtonCradle,
+  prism: buildPrism,
+  tesseract: buildTesseract,
+  quantum_computer: buildQuantumComputer,
   cube: primitive(new THREE.BoxGeometry(1.3, 1.3, 1.3), 1.15),
   sphere: primitive(new THREE.IcosahedronGeometry(0.95, 4), 0.95, 60),
   torus: primitive(new THREE.TorusKnotGeometry(0.62, 0.2, 220, 28), 0.95, 60),

@@ -9,6 +9,7 @@ import type {
   DeepDivePart,
   DeepDiveSettings,
   LibraryModel,
+  ModelActionInfo,
   DeviceRole,
   ExecutionRecord,
   HistoryEntry,
@@ -32,6 +33,7 @@ interface PersistedSession {
   visor: Pick<VisorState, "device" | "previousMode" | "gazeInPlayground">;
   /** Deep Dive look, remembered per model. */
   deepDivePrefs?: Record<string, DeepDiveSettings>;
+  brightness?: number;
 }
 
 export const DEEP_DIVE_DEFAULTS: DeepDiveSettings = {
@@ -103,8 +105,9 @@ export class ArcCore extends EventEmitter<CoreEvents> {
       scene: this.session.scene,
       library: [],
       thumbs: {},
-      deepDive: { active: false, modelId: null, modelName: null, settings: { ...DEEP_DIVE_DEFAULTS }, parts: [], focusPart: null },
-      settings: { autoExecuteLowRisk: config.autoExecuteLowRisk },
+      deepDive: { active: false, modelId: null, modelName: null, settings: { ...DEEP_DIVE_DEFAULTS }, parts: [], focusPart: null, collection: null, actions: [] },
+      // Brightness starts minimal: coloured models and holograms glow less.
+      settings: { autoExecuteLowRisk: config.autoExecuteLowRisk, brightness: this.session.brightness ?? 0.3 },
       // The visor never survives a restart (its device has to re-open it).
       visor: { ...this.session.visor, device: null, status: { ...VISOR_STATUS_OFF } },
     };
@@ -349,9 +352,10 @@ export class ArcCore extends EventEmitter<CoreEvents> {
   }
 
   /** Open Deep Dive (with a model, or the carousel when `modelId` is null), or close it. */
-  setDeepDive(active: boolean, modelId: string | null = null, modelName: string | null = null): void {
+  setDeepDive(active: boolean, modelId: string | null = null, modelName: string | null = null, collection?: string | null): void {
     const dd = this.state.deepDive;
     dd.active = active;
+    if (collection !== undefined) dd.collection = collection;
     if (!active) {
       dd.focusPart = null;
       this.changed();
@@ -361,6 +365,7 @@ export class ArcCore extends EventEmitter<CoreEvents> {
       dd.modelId = modelId;
       dd.modelName = modelName;
       dd.parts = [];
+      dd.actions = [];
       dd.focusPart = null;
       if (modelId) {
         const saved = this.session.deepDivePrefs?.[modelId];
@@ -382,10 +387,31 @@ export class ArcCore extends EventEmitter<CoreEvents> {
     this.changed();
   }
 
-  setDeepDiveParts(modelId: string, parts: DeepDivePart[]): void {
+  setDeepDiveParts(modelId: string, parts: DeepDivePart[], actions?: ModelActionInfo[]): void {
     const dd = this.state.deepDive;
     if (dd.modelId !== modelId) return;
     dd.parts = parts;
+    if (actions) dd.actions = actions;
+    this.changed();
+  }
+
+  /** Change one of the model's interactive states (undefined value = toggle / next option). */
+  setModelAction(id: string, value?: boolean | string): ModelActionInfo | null {
+    const a = this.state.deepDive.actions.find((x) => x.id === id);
+    if (!a) return null;
+    if (a.kind === "toggle") a.value = typeof value === "boolean" ? value : !a.value;
+    else if (a.kind === "choice") {
+      const opts = a.options ?? [];
+      a.value = typeof value === "string" && opts.includes(value) ? value : opts[(opts.indexOf(String(a.value)) + 1) % Math.max(1, opts.length)] ?? a.value;
+    } else a.value = typeof a.value === "boolean" ? !a.value : true; // trigger: flips so the PC sees a change
+    this.changed();
+    return a;
+  }
+
+  setBrightness(value: number): void {
+    this.state.settings.brightness = Math.max(0, Math.min(1, value));
+    this.session.brightness = this.state.settings.brightness;
+    this.persist();
     this.changed();
   }
 

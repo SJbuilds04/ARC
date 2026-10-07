@@ -192,7 +192,8 @@ export class PlaygroundInteraction {
       const { x, y } = norm(e);
       if (dd && diving()) {
         canvas.setPointerCapture(e.pointerId);
-        this.dd.mouse = dd.click(x, y) ? null : { x, y, rotate: e.button === 2 || e.shiftKey, moved: 0 };
+        // Picking (cards, pins, model parts) happens on release if the pointer didn't move.
+        this.dd.mouse = { x, y, rotate: e.button === 2 || e.shiftKey, moved: 0 };
         return;
       }
       const obj = this.engine.pick(x, y);
@@ -237,7 +238,9 @@ export class PlaygroundInteraction {
     });
     const end = () => {
       if (dd && diving()) {
-        if (this.dd.mouse) dd.release();
+        const m = this.dd.mouse;
+        if (m && m.moved < 0.008) dd.click(m.x, m.y);
+        else if (m) dd.release();
         this.dd.mouse = null;
         return;
       }

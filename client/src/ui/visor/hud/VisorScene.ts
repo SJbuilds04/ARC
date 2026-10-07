@@ -30,16 +30,26 @@ const FACE_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uPresence;
   uniform float uSharpen;     // only when the camera image is being enlarged
+  uniform sampler2D uHud;     // the HUD canvas: its light reflects on the face
+  uniform vec2 uHudTexel;
+  uniform float uCurve;
+
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 
   float maskAt(vec2 uv) { return texture2D(uMask, uv).r; }
 
   void main() {
-    vec2 uv = (vUv - uRect.xy) / uRect.zw;
+    // Seen through the same curved visor glass as the HUD.
+    vec2 cp = vUv * 2.0 - 1.0;
+    float cr2 = dot(cp, cp);
+    vec2 sUv = (cp * (1.0 + uCurve * cr2)) * 0.5 + 0.5;
+    vec2 uv = (sUv - uRect.xy) / uRect.zw;
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { gl_FragColor = vec4(0.0); return; }
     vec2 vuv = vec2(1.0 - uv.x, 1.0 - uv.y); // mirrored selfie view; texture rows top-down
 
-    // Unsharp mask: recovers detail lost to webcam softness and upscaling.
-    vec3 c = texture2D(uVideo, vuv).rgb;
+    // Unsharp mask: recovers detail lost to webcam softness and upscaling; slight colour fringing toward the edges.
+    vec2 fringe = (vuv - 0.5) * 0.006 * cr2;
+    vec3 c = vec3(texture2D(uVideo, vuv + fringe).r, texture2D(uVideo, vuv).g, texture2D(uVideo, vuv - fringe).b);
     vec3 blur = (texture2D(uVideo, vuv + vec2(uTexel.x, 0.0) * 1.5).rgb + texture2D(uVideo, vuv - vec2(uTexel.x, 0.0) * 1.5).rgb +
                  texture2D(uVideo, vuv + vec2(0.0, uTexel.y) * 1.5).rgb + texture2D(uVideo, vuv - vec2(0.0, uTexel.y) * 1.5).rgb) * 0.25;
     c = clamp(c + (c - blur) * uSharpen, 0.0, 1.0);
@@ -80,6 +90,22 @@ const FACE_FRAG = /* glsl */ `
     // Fade where the camera frame ends (shoulders leaving the bottom edge).
     m *= smoothstep(0.0, 0.14, uv.y) * smoothstep(0.0, 0.05, uv.x) * smoothstep(1.0, 0.95, uv.x);
     vec3 col = lit + vec3(0.35, 0.82, 1.0) * inner * 0.32;
+    // HUD light reflected on the skin (the screens inside the helmet light Tony's face).
+    vec2 hp = vec2(sUv.x, 1.0 - sUv.y);
+    vec3 hud = vec3(0.0);
+    for (int i = 0; i < 8; i++) {
+      float a = float(i) * 0.785398;
+      vec4 h = texture2D(uHud, hp + vec2(cos(a), sin(a)) * uHudTexel * 22.0);
+      hud += h.rgb * h.a;
+    }
+    col += hud / 8.0 * 0.55 * smoothstep(0.05, 0.7, l + 0.2);
+    // Holographic scan sweeping down the face every few seconds.
+    float sweep = fract(uTime * 0.22);
+    float band = exp(-pow((uv.y - (1.0 - sweep)) * 22.0, 2.0));
+    col += vec3(0.25, 0.75, 1.0) * band * 0.22;
+    // Fine scanlines + film grain.
+    col *= 0.94 + 0.06 * sin(gl_FragCoord.y * 1.9 + uTime * 3.0);
+    col += (hash(gl_FragCoord.xy + fract(uTime) * 91.0) - 0.5) * 0.035;
     gl_FragColor = vec4(col * m * uPresence, m * uPresence);
   }`;
 
@@ -156,6 +182,7 @@ export class VisorScene {
   private helmetMat: THREE.ShaderMaterial;
   private hudMat: THREE.ShaderMaterial;
   private maskSize = { w: 0, h: 0 };
+  private faceHud: THREE.Texture | null = null;
   private lastImage: unknown = null;
   private lastMask: PersonMask | null = null;
 
@@ -178,6 +205,7 @@ export class VisorScene {
     this.hudTex.generateMipmaps = false;
     this.hudTex.colorSpace = THREE.NoColorSpace;
     this.hudTex.flipY = false;
+    this.faceHud = this.hudTex;
 
     const quad = new THREE.PlaneGeometry(2, 2);
     this.faceMat = new THREE.ShaderMaterial({
@@ -196,6 +224,9 @@ export class VisorScene {
         uTime: { value: 0 },
         uPresence: { value: 0 },
         uSharpen: { value: 0.6 },
+        uHud: { value: null as THREE.Texture | null },
+        uHudTexel: { value: new THREE.Vector2(1 / 1600, 1 / 900) },
+        uCurve: { value: 0.025 },
       },
       transparent: true,
       depthTest: false,
@@ -231,6 +262,7 @@ export class VisorScene {
       mesh.renderOrder = order;
       this.scene.add(mesh);
     };
+    this.faceMat.uniforms.uHud.value = this.faceHud;
     add(this.faceMat, 1);
     add(this.helmetMat, 2);
     add(this.hudMat, 3);
@@ -244,6 +276,7 @@ export class VisorScene {
 
   setHudSize(w: number, h: number): void {
     (this.hudMat.uniforms.uTexel.value as THREE.Vector2).set(1 / w, 1 / h);
+    (this.faceMat.uniforms.uHudTexel.value as THREE.Vector2).set(1 / w, 1 / h);
   }
 
   /** New camera frame (+ its mask). Uploads only when something actually changed. */

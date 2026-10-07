@@ -66,6 +66,9 @@ Deep Dive (one model alone on a stage; AR = blue hologram with labelled parts):
  {"action":"FOCUS_PART","part":"<part name>"|null}
  // While Deep Dive is open, use DEEP_DIVE_SET for explode/spin/style. "explode": 0..1 — "explode to 40%" → 0.4. "stop spin" → "spin":0.
  {"action":"CAROUSEL","command":"next"|"previous"|"select"}
+ {"action":"DEEP_DIVE","enabled":true,"collection":"ironman"|"spiderman"|"space"|"physics"|"anatomy"|"machines"|"all"}   // "pull up everything we have on X"
+ {"action":"MODEL_ACTION","id":"<action id>","value":true|false|"<option>"}   // interact with the model on stage (ids listed in CONTEXT)
+ {"action":"SET_BRIGHTNESS","value":<0..1>}
 
 Never invent other actions. Never output shell commands. If something isn't possible with these actions, say so briefly.
 "it" / "that" refers to the selected object, else the most recently spawned one.
@@ -74,7 +77,7 @@ CONTEXT
 - Time: ${now.toLocaleString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}
 - PC space: ${state.spaces.PC}. Phone space: ${state.spaces.PHONE}.${state.visor.device ? ` Visor on ${state.visor.device} (gaze ${state.visor.status.gaze}, target ${state.visor.status.target ?? "none"}).` : ""} Active camera: ${state.vision.activeSource}. Phone connected: ${state.devices.PHONE.connected ? "yes" : "no"}.
 - Playground objects: ${objects.length ? objects.join(", ") : "none"}.
-- Deep Dive: ${state.deepDive.active ? `open${state.deepDive.modelName ? ` on ${state.deepDive.modelName} (AR ${state.deepDive.settings.ar ? "on" : "off"}; parts: ${state.deepDive.parts.map((p) => p.name).slice(0, 30).join(", ") || "loading"})` : " (carousel)"}` : "closed"}.
+- Deep Dive: ${state.deepDive.active ? `open${state.deepDive.modelName ? ` on ${state.deepDive.modelName} (AR ${state.deepDive.settings.ar ? "on" : "off"}; parts: ${state.deepDive.parts.map((p) => p.name).slice(0, 30).join(", ") || "loading"}; actions: ${state.deepDive.actions.map((a) => `${a.id}=${a.value}${a.options ? ` [${a.options.join("/")}]` : ""}`).join(", ") || "none"})` : ` (carousel${state.deepDive.collection ? `: ${state.deepDive.collection}` : ""})`}` : "closed"}. Brightness ${Math.round(state.settings.brightness * 100)}%.
 - Known apps include: ${knownApps.join(", ")} (any installed app can be opened by name).
 - Recent conversation (context only — resolve "it"/"that"/follow-ups from it):
 ${transcript || "(none)"}

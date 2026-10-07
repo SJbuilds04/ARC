@@ -5,7 +5,8 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { ObjectManager, type ArcObject } from "./ObjectManager";
-import { glowSprite, holoTime } from "./holo";
+import { glowSprite, holoGain, holoTime } from "./holo";
+import { blackHoleGain } from "./objects/blackhole";
 
 const FLOOR_Y = -1.15;
 const HOME = { azimuth: 0, elevation: 0.17, distance: 6.6, target: new THREE.Vector3(0, 0.15, -0.4) };
@@ -280,6 +281,20 @@ export class PlaygroundEngine {
       this.scene.backgroundIntensity = this.milkyWay ? 0.16 : 1;
       this.scene.fog = new THREE.FogExp2(0x01060e, 0.045);
     }
+  }
+
+  /**
+   * Scene brightness 0..1: exposure, bloom, environment reflections and hologram intensity.
+   * ARC starts low so coloured models and holograms don't glare.
+   */
+  setBrightness(b: number): void {
+    const v = Math.max(0, Math.min(1, b));
+    this.renderer.toneMappingExposure = 0.5 + v * 0.75;
+    this.bloom.strength = 0.12 + v * 0.55;
+    this.bloom.threshold = 0.72 - v * 0.2;
+    this.scene.environmentIntensity = 0.22 + v * 0.3;
+    holoGain.value = 0.42 + v * 0.75;
+    blackHoleGain.value = 0.6 + v * 0.7;
   }
 
   /** Render the current scene from `camera` into a PNG (for model thumbnails). */

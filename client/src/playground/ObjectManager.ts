@@ -245,7 +245,7 @@ export class ObjectManager extends Emitter<ObjectEvents> {
 
   async apply(cmd: PlaygroundAction): Promise<void> {
     // Deep Dive commands are handled by the Deep Dive stage, not individual objects.
-    if (cmd.action === "DEEP_DIVE" || cmd.action === "DEEP_DIVE_SET" || cmd.action === "FOCUS_PART" || cmd.action === "CAROUSEL") return;
+    if (cmd.action === "DEEP_DIVE" || cmd.action === "DEEP_DIVE_SET" || cmd.action === "FOCUS_PART" || cmd.action === "CAROUSEL" || cmd.action === "MODEL_ACTION") return;
     if (cmd.action === "SPAWN_OBJECT") {
       this.spawn(cmd.object);
       return;

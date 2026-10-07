@@ -6,7 +6,7 @@ import { prefs, savePref } from "../../core/device";
 import { arc } from "../../core/services";
 import { Panel } from "../primitives";
 import { Icon } from "../Icons";
-import { DeepDiveControls, PartsList, ddAction, useDeepDiveTitle } from "../deepdive";
+import { CollectionTabs, DeepDiveControls, ModelActions, PartsList, ddAction, useDeepDiveTitle } from "../deepdive";
 import type { PhoneTab } from "./PhoneApp";
 
 const act = (action: PlaygroundAction) => arc.send({ type: "ACTION_REQUEST", action });
@@ -178,6 +178,7 @@ function DeepDiveRemote({ go }: { go: (t: PhoneTab) => void }) {
   if (!title)
     return (
       <Panel title="PICK A MODEL ON THE PC" className="ph-card">
+        <CollectionTabs compact />
         <div className="ph-carousel">
           <button className="btn btn--tool" onClick={() => act({ action: "CAROUSEL", command: "previous" })} aria-label="Previous">
             <Icon.Chevron width={20} height={20} style={{ transform: "scaleX(-1)" }} />
@@ -223,6 +224,7 @@ function DeepDiveRemote({ go }: { go: (t: PhoneTab) => void }) {
           </div>
         )}
       </Panel>
+      <ModelActions />
       <Touchpad hint="Drag to turn · pinch to zoom" />
       <TiltToggle />
       <Panel title={`PARTS${parts.length ? ` · ${parts.length}` : ""}`} className="ph-card">

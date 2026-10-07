@@ -59,7 +59,8 @@ if (playground && deepDive) {
   playground.objects.modelLookup = lookup;
   deepDive.lookup = lookup;
   deepDive.thumbs = () => useArc.getState().state?.thumbs ?? {};
-  deepDive.onParts = (model, parts) => arc.send({ type: "DEEP_DIVE_PARTS", model, parts });
+  deepDive.onParts = (model, parts, actions) => arc.send({ type: "DEEP_DIVE_PARTS", model, parts, actions });
+  deepDive.onAct = (id) => arc.send({ type: "ACTION_REQUEST", action: { action: "MODEL_ACTION", id } });
   deepDive.onSelect = (model) => arc.send({ type: "ACTION_REQUEST", action: { action: "DEEP_DIVE", enabled: true, model } });
   deepDive.onFocus = (part) => arc.send({ type: "ACTION_REQUEST", action: { action: "FOCUS_PART", part } });
   deepDive.onPin = (model, pos, screen) => useArc.setState({ pinPrompt: { model, pos, x: screen.x, y: screen.y } });
@@ -70,6 +71,11 @@ if (playground && deepDive) {
     if (st) deepDive.sync(st.deepDive, st.spaces.PC === "PLAYGROUND", st.library);
   };
   useArc.subscribe((s, prev) => s.state !== prev.state && syncDeepDive());
+  useArc.subscribe((s, prev) => {
+    const b = s.state?.settings.brightness;
+    if (b !== undefined && b !== prev.state?.settings.brightness) playground.setBrightness(b);
+  });
+  playground.setBrightness(0.3);
 
   // Phone as a 3D controller: drag orbits / turns, pinch zooms, tilt steers.
   arc.on("CONTROL", ({ kind, dx, dy }) => {

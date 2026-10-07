@@ -17,6 +17,22 @@ export interface BuiltObject {
   update?(dt: number, t: number): void;
   /** Labelled parts for Deep Dive AR mode. */
   parts?: PartAnchor[];
+  /** Things you can do to the model (open the faceplate, power the reactor, paint it…). */
+  actions?: ModelAction[];
+  /** Apply an action's new value (the model animates toward it in update()). */
+  act?(id: string, value: boolean | string): void;
+}
+
+export interface ModelAction {
+  id: string;
+  label: string;
+  kind: "toggle" | "choice" | "trigger";
+  options?: string[];
+  /** Words that name it by voice. */
+  words?: string[];
+  value: boolean | string;
+  /** Pinch / click one of these to trigger the action with your hand. */
+  parts?: THREE.Object3D[];
 }
 
 export type Builder = () => BuiltObject;

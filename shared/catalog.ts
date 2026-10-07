@@ -8,7 +8,7 @@ export interface CatalogEntry {
   id: string;
   name: string;
   aliases: string[];
-  category: "Planet" | "Star" | "System" | "Science" | "Anatomy" | "Machine" | "Primitive";
+  category: "Planet" | "Star" | "System" | "Science" | "Anatomy" | "Machine" | "Primitive" | "Iron Man" | "Spider-Man" | "Physics" | "Futuristic";
   /** Real reference facts shown in the object panel. */
   facts: { label: string; value: string }[];
   /** Capabilities the object supports (drives which properties JARVIS may toggle). */
@@ -154,6 +154,171 @@ export const OBJECT_CATALOG: CatalogEntry[] = [
       { label: "Hemispheres", value: "2" },
     ],
   },
+  // ── Iron Man ──
+  {
+    id: "mark3",
+    name: "Mark III Armor",
+    aliases: ["mark 3", "mark three", "mark iii", "mark 3 suit", "mark three suit", "iron man suit", "iron man armor", "iron man", "classic iron man"],
+    category: "Iron Man",
+    facts: [
+      { label: "Debut", value: "Iron Man (2008)" },
+      { label: "Finish", value: "Hot-rod red + gold-titanium" },
+      { label: "Power", value: "Arc reactor (palladium)" },
+    ],
+  },
+  {
+    id: "mark42",
+    name: "Mark 42 Armor",
+    aliases: ["mark 42", "mark forty two", "mark xlii", "prodigal son", "gold iron man"],
+    category: "Iron Man",
+    facts: [
+      { label: "Debut", value: "Iron Man 3 (2013)" },
+      { label: "Feature", value: "Self-assembling modules" },
+      { label: "Finish", value: "Gold-dominant" },
+    ],
+  },
+  {
+    id: "mark50",
+    name: "Mark 50 Nanotech",
+    aliases: ["mark 50", "mark fifty", "mark l", "nanotech suit", "bleeding edge", "infinity war suit"],
+    category: "Iron Man",
+    facts: [
+      { label: "Debut", value: "Infinity War (2018)" },
+      { label: "Tech", value: "Nanoparticle armor" },
+      { label: "Housing", value: "Chest reactor unit" },
+    ],
+  },
+  {
+    id: "mark85",
+    name: "Mark 85 Armor",
+    aliases: ["mark 85", "mark eighty five", "mark lxxxv", "endgame suit", "final suit"],
+    category: "Iron Man",
+    facts: [
+      { label: "Debut", value: "Endgame (2019)" },
+      { label: "Tech", value: "Nanotech, reinforced" },
+      { label: "Finish", value: "Red with heavy gold" },
+    ],
+  },
+  {
+    id: "hulkbuster",
+    name: "Hulkbuster",
+    aliases: ["hulkbuster", "hulk buster", "mark 44", "mark xliv", "veronica"],
+    category: "Iron Man",
+    facts: [
+      { label: "Debut", value: "Age of Ultron (2015)" },
+      { label: "Role", value: "Heavy containment armor" },
+      { label: "Height", value: "~3 m" },
+    ],
+  },
+  {
+    id: "arc_reactor",
+    name: "Arc Reactor Mk I",
+    aliases: ["arc reactor", "reactor", "mark 1 reactor", "mark one reactor", "palladium reactor", "miniature arc reactor"],
+    category: "Iron Man",
+    facts: [
+      { label: "Core", value: "Palladium" },
+      { label: "Output", value: "~3 GJ/s (fictional)" },
+      { label: "Coils", value: "10 copper windings" },
+    ],
+  },
+  {
+    id: "arc_reactor2",
+    name: "Arc Reactor Mk II",
+    aliases: ["new element reactor", "triangle reactor", "triangular reactor", "mark 2 reactor", "mark two reactor", "vibranium reactor", "new arc reactor"],
+    category: "Iron Man",
+    facts: [
+      { label: "Core", value: "New element (triangular)" },
+      { label: "Debut", value: "Iron Man 2 (2010)" },
+    ],
+  },
+  // ── Spider-Man ──
+  {
+    id: "spider_classic",
+    name: "Spider-Man Suit",
+    aliases: ["spider man", "spiderman", "spider-man", "spider man suit", "spiderman suit", "classic spider man", "spidey"],
+    category: "Spider-Man",
+    facts: [
+      { label: "Style", value: "Classic red & blue" },
+      { label: "Web pattern", value: "Raised silver lines" },
+    ],
+  },
+  {
+    id: "iron_spider",
+    name: "Iron Spider",
+    aliases: ["iron spider", "iron spider suit", "iron-spider"],
+    category: "Spider-Man",
+    facts: [
+      { label: "Debut", value: "Infinity War (2018)" },
+      { label: "Feature", value: "4 mechanical legs" },
+      { label: "Tech", value: "Stark nanotech" },
+    ],
+  },
+  // ── Space ──
+  {
+    id: "black_hole",
+    name: "Gargantua",
+    aliases: ["black hole", "blackhole", "gargantua", "interstellar black hole", "interstellar"],
+    category: "Star",
+    facts: [
+      { label: "Type", value: "Spinning supermassive" },
+      { label: "Mass", value: "~100 million suns" },
+      { label: "Shown", value: "Accretion disk + lensing" },
+    ],
+  },
+  // ── Physics & quantum ──
+  {
+    id: "double_slit",
+    name: "Double-Slit Experiment",
+    aliases: ["double slit", "double slit experiment", "young's double slit", "youngs double slit", "young double slit", "wave particle duality", "interference experiment"],
+    category: "Physics",
+    facts: [
+      { label: "First done", value: "Thomas Young, 1801" },
+      { label: "Shows", value: "Wave–particle duality" },
+      { label: "Fringe spacing", value: "λL / d" },
+    ],
+  },
+  {
+    id: "newton_cradle",
+    name: "Newton's Cradle",
+    aliases: ["newton's cradle", "newtons cradle", "newton cradle", "cradle"],
+    category: "Physics",
+    facts: [
+      { label: "Shows", value: "Momentum + energy conservation" },
+      { label: "Balls", value: "5" },
+    ],
+  },
+  {
+    id: "prism",
+    name: "Newton's Prism",
+    aliases: ["prism", "light prism", "newton's prism", "dispersion", "rainbow prism"],
+    category: "Physics",
+    facts: [
+      { label: "First done", value: "Isaac Newton, 1666" },
+      { label: "Shows", value: "White light is a spectrum" },
+    ],
+  },
+  {
+    id: "tesseract",
+    name: "Tesseract (4D)",
+    aliases: ["tesseract", "hypercube", "4d cube", "four dimensional cube", "4d"],
+    category: "Futuristic",
+    facts: [
+      { label: "Dimensions", value: "4" },
+      { label: "Vertices", value: "16" },
+      { label: "Edges", value: "32" },
+    ],
+  },
+  {
+    id: "quantum_computer",
+    name: "Quantum Computer",
+    aliases: ["quantum computer", "quantum chandelier", "dilution refrigerator", "qubit computer", "quantum"],
+    category: "Futuristic",
+    facts: [
+      { label: "Qubits", value: "Superconducting" },
+      { label: "Coldest stage", value: "~15 millikelvin" },
+      { label: "Stages", value: "5 temperature plates" },
+    ],
+  },
   { id: "cube", name: "Cube", aliases: ["cube", "box"], category: "Primitive", facts: [{ label: "Faces", value: "6" }] },
   { id: "sphere", name: "Sphere", aliases: ["sphere", "ball", "orb"], category: "Primitive", facts: [] },
   {
@@ -173,6 +338,41 @@ export const OBJECT_CATALOG: CatalogEntry[] = [
 ];
 
 const byId = new Map(OBJECT_CATALOG.map((e) => [e.id, e]));
+
+/** Carousel / voice collections ("pull up everything we have on Iron Man"). */
+export interface Collection {
+  id: string;
+  name: string;
+  aliases: string[];
+  categories: CatalogEntry["category"][];
+}
+
+export const COLLECTIONS: Collection[] = [
+  { id: "ironman", name: "Iron Man", aliases: ["iron man", "ironman", "tony stark", "stark", "stark industries", "the avengers", "avengers", "marvel"], categories: ["Iron Man"] },
+  { id: "spiderman", name: "Spider-Man", aliases: ["spider man", "spiderman", "spider-man", "peter parker", "spidey"], categories: ["Spider-Man"] },
+  { id: "space", name: "Space", aliases: ["space", "planets", "astronomy", "the universe", "universe", "cosmos", "stars"], categories: ["Planet", "Star", "System"] },
+  { id: "physics", name: "Physics & Quantum", aliases: ["physics", "quantum", "quantum physics", "science", "experiments", "science experiments", "quantum experiments", "futuristic", "futuristic stuff"], categories: ["Physics", "Futuristic", "Science"] },
+  { id: "anatomy", name: "Anatomy", aliases: ["anatomy", "human body", "biology", "medical", "organs"], categories: ["Anatomy"] },
+  { id: "machines", name: "Machines", aliases: ["machines", "cars", "engineering", "vehicles", "engines"], categories: ["Machine"] },
+  { id: "shapes", name: "Shapes", aliases: ["shapes", "primitives", "geometry"], categories: ["Primitive"] },
+  { id: "yours", name: "Your models", aliases: ["my models", "my stuff", "imported models", "my files", "your models", "my uploads"], categories: [] },
+];
+
+export function collectionOf(id: string): Collection | undefined {
+  return COLLECTIONS.find((c) => c.id === id);
+}
+
+/** "everything on iron man" → "ironman". Longest alias wins. */
+export function resolveCollection(input: string): string | null {
+  const text = ` ${input.toLowerCase().replace(/[^a-z0-9 -]+/g, " ").replace(/\s+/g, " ").trim()} `;
+  let best: { id: string; len: number } | null = null;
+  for (const c of COLLECTIONS) {
+    for (const alias of [c.name.toLowerCase(), ...c.aliases]) {
+      if (text.includes(` ${alias} `) && (!best || alias.length > best.len)) best = { id: c.id, len: alias.length };
+    }
+  }
+  return best?.id ?? null;
+}
 
 export function catalogEntry(id: string): CatalogEntry | undefined {
   return byId.get(id);

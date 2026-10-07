@@ -5,6 +5,7 @@ import { useArc } from "../../core/store";
 import { arc, playground, uploadFile } from "../../core/services";
 import { notify } from "../../core/store";
 import { DeepDiveOverlay } from "./DeepDiveOverlay";
+import { BrightnessControl } from "../deepdive";
 import type { ArcObject } from "../../playground/ObjectManager";
 import { Panel, StatusRow } from "../primitives";
 import { Icon, ObjectGlyph } from "../Icons";
@@ -184,6 +185,9 @@ export function PlaygroundOverlay() {
           <button className="btn btn--tool btn--dive" onClick={() => playgroundAction({ action: "DEEP_DIVE", enabled: true })}>
             <Icon.Dive width={16} height={16} /> DEEP DIVE
           </button>
+        </div>
+        <div className="pg-brightness arc-ui-block">
+          <BrightnessControl />
         </div>
       </div>
       <div className="pg-overlay__right">

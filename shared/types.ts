@@ -29,8 +29,8 @@ export type {
   VisorGaze,
   VisorHands,
 } from "./schemas";
-export type { SceneObject, DesktopAction, ClientMessage, ClientMessageOf, DeepDivePart } from "./schemas";
-import type { DeepDivePart } from "./schemas";
+export type { SceneObject, DesktopAction, ClientMessage, ClientMessageOf, DeepDivePart, ModelActionInfo } from "./schemas";
+import type { DeepDivePart, ModelActionInfo } from "./schemas";
 
 export type ServiceStatus = "ONLINE" | "DEGRADED" | "OFFLINE" | "UNCONFIGURED";
 
@@ -147,6 +147,10 @@ export interface DeepDiveState {
   settings: DeepDiveSettings;
   parts: DeepDivePart[];
   focusPart: string | null;
+  /** Carousel category filter (null = everything). */
+  collection: string | null;
+  /** Things you can do to the model on stage, with their current values. */
+  actions: ModelActionInfo[];
 }
 
 export interface ArcState {
@@ -186,7 +190,7 @@ export interface ArcState {
   /** Thumbnail URLs by model id (built-in and imported), rendered by the PC. */
   thumbs: Record<string, string>;
   deepDive: DeepDiveState;
-  settings: { autoExecuteLowRisk: boolean };
+  settings: { autoExecuteLowRisk: boolean; brightness: number };
   visor: VisorState;
 }
 

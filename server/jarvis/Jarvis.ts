@@ -8,7 +8,7 @@ import { classify } from "../security/risk";
 import { buildSystemPrompt } from "./prompt";
 import { parseLocalIntent, stripWake } from "./localIntents";
 import { ArcActionSchema, isDesktopAction, isPlaygroundAction } from "../../shared/schemas";
-import { catalogEntry, resolveCatalogId } from "../../shared/catalog";
+import { catalogEntry, resolveCatalogId, resolveCollection } from "../../shared/catalog";
 import type { ArcAction, Attachment, DeepDivePart, DesktopAction, DeviceRole, ExecutionRecord, PendingAction, PlaygroundAction, ServerMessage } from "../../shared/types";
 import type { ModelLibrary } from "../library/ModelLibrary";
 import type { Received } from "../http/api";
@@ -217,7 +217,7 @@ export class Jarvis {
     return imported ? { id: imported.id, name: imported.name } : null;
   }
 
-  private deepDive(action: Extract<PlaygroundAction, { action: "DEEP_DIVE" | "DEEP_DIVE_SET" | "FOCUS_PART" }>): void {
+  private deepDive(action: Extract<PlaygroundAction, { action: "DEEP_DIVE" | "DEEP_DIVE_SET" | "FOCUS_PART" | "MODEL_ACTION" }>): void {
     const state = this.core.getState();
     if (action.action === "DEEP_DIVE") {
       if (!action.enabled) {
@@ -225,8 +225,9 @@ export class Jarvis {
         return;
       }
       if (state.spaces.PC !== "PLAYGROUND") this.core.setSpace("PC", "PLAYGROUND");
+      const collection = action.collection === undefined ? undefined : action.collection === "all" ? null : (resolveCollection(action.collection) ?? null);
       if (!action.model) {
-        this.core.setDeepDive(true, null, null);
+        this.core.setDeepDive(true, null, null, collection);
         return;
       }
       const model = this.resolveModel(action.model);
@@ -239,6 +240,10 @@ export class Jarvis {
     }
     if (!state.deepDive.active) {
       this.respond("That works in Deep Dive, boss. Say deep dive and a model name.");
+      return;
+    }
+    if (action.action === "MODEL_ACTION") {
+      if (!this.core.setModelAction(action.id, action.value)) this.respond("This model can't do that, boss.");
       return;
     }
     if (action.action === "FOCUS_PART") {
@@ -350,8 +355,9 @@ export class Jarvis {
         else if (action.action === "EXIT_VISOR") this.core.exitVisor();
         else if (action.action === "SET_GAZE") this.core.setGazeInPlayground(action.enabled);
         else if (action.action === "SET_PHONE_HANDS") this.core.setPhoneHands(action.enabled);
+        else if (action.action === "SET_BRIGHTNESS") this.core.setBrightness(action.value);
         else if (action.action === "RECALIBRATE_GAZE") this.recalibrateGaze();
-        else if (action.action === "DEEP_DIVE" || action.action === "DEEP_DIVE_SET" || action.action === "FOCUS_PART") {
+        else if (action.action === "DEEP_DIVE" || action.action === "DEEP_DIVE_SET" || action.action === "FOCUS_PART" || action.action === "MODEL_ACTION") {
           if (!this.out.isConnected("PC")) {
             this.respond("The desktop display isn't connected, boss. Open ARC on the PC.", undefined, true);
             return;

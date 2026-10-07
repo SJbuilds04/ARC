@@ -2,6 +2,8 @@ import * as THREE from "three";
 
 /** Shared clock for every hologram shader (one uniform, updated once per frame). */
 export const holoTime = { value: 0 };
+/** Global hologram intensity (driven by the brightness control). */
+export const holoGain = { value: 0.7 };
 
 export const HOLO_CYAN = 0x5fd8ff;
 
@@ -22,6 +24,7 @@ const HOLO_FRAG = /* glsl */ `
   uniform vec3 uColor;
   uniform float uTime;
   uniform float uOpacity;
+  uniform float uGain;
   uniform float uPow;
   uniform float uScan;
   varying vec3 vNormalV;
@@ -31,8 +34,8 @@ const HOLO_FRAG = /* glsl */ `
     float f = pow(1.0 - abs(dot(normalize(vNormalV), normalize(vViewV))), uPow);
     float scan = 0.82 + 0.18 * sin(vWorld.y * 70.0 - uTime * 3.0);
     float band = smoothstep(0.0, 0.04, abs(fract(vWorld.y * 0.6 - uTime * 0.15) - 0.5)) * 0.25 + 0.75;
-    float alpha = (0.08 + f * 0.95) * uOpacity * mix(1.0, scan * band, uScan);
-    gl_FragColor = vec4(uColor * (0.55 + f * 1.6), alpha);
+    float alpha = (0.08 + f * 0.95) * uOpacity * mix(1.0, scan * band, uScan) * uGain;
+    gl_FragColor = vec4(uColor * (0.55 + f * 1.6) * uGain, alpha);
   }`;
 
 export function holoMaterial(color: THREE.ColorRepresentation = HOLO_CYAN, opts: { opacity?: number; fresnel?: number; scan?: number } = {}) {
@@ -41,6 +44,7 @@ export function holoMaterial(color: THREE.ColorRepresentation = HOLO_CYAN, opts:
       uTime: holoTime,
       uColor: { value: new THREE.Color(color) },
       uOpacity: { value: opts.opacity ?? 1 },
+      uGain: holoGain,
       uPow: { value: opts.fresnel ?? 2.2 },
       uScan: { value: opts.scan ?? 0.6 },
     },

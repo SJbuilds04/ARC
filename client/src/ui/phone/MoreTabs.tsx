@@ -4,6 +4,7 @@ import { arc } from "../../core/services";
 import { Panel, StatusRow } from "../primitives";
 import { Icon } from "../Icons";
 import { StatusHud } from "../vision";
+import { BrightnessControl } from "../deepdive";
 
 export function VisorTab() {
   const visorDevice = useArc((s) => s.state?.visor.device ?? null);
@@ -62,6 +63,9 @@ export function SettingsTab() {
           <i />
         </button>
         <p className="muted small">The phone is touch-first. Hand tracking runs on the PC webcam; the visor uses the phone’s front camera for your face only.</p>
+      </Panel>
+      <Panel title="PC DISPLAY" className="ph-card">
+        <BrightnessControl />
       </Panel>
       <Panel title="ARC STATUS" className="ph-card">
         <StatusHud compact />

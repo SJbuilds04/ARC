@@ -12,7 +12,7 @@ const state = (overrides: Partial<ArcState> = {}): ArcState =>
     spaces: { PC: "COMMAND", PHONE: "COMMAND" },
     pending: null,
     library: [],
-    deepDive: { active: false, modelId: null, modelName: null, settings: {}, parts: [], focusPart: null },
+    deepDive: { active: false, modelId: null, modelName: null, settings: {}, parts: [], focusPart: null, collection: null, actions: [] },
     scene: { objects: [], selectedId: null },
     vision: { activeSource: "PHONE", routes: [], sources: {} },
     devices: { PHONE: { connected: true }, PC: { connected: true } },
@@ -123,7 +123,7 @@ test("visor voice commands", () => {
 });
 
 const diving = (parts: { id: string; name: string; level: 1 | 2 }[] = [], modelId: string | null = "heart") =>
-  state({ deepDive: { active: true, modelId, modelName: "Heart", settings: {} as never, parts, focusPart: null } });
+  state({ deepDive: { active: true, modelId, modelName: "Heart", settings: {} as never, parts, focusPart: null, collection: null, actions: [] } });
 
 test("deep dive voice commands", () => {
   assert.deepEqual(actionsOf("deep dive the heart"), [{ action: "DEEP_DIVE", enabled: true, model: "heart" }]);
@@ -165,7 +165,7 @@ test("colour names resolve to hex", () => {
 });
 
 test("explode by percent, spin on/off, labels without AR", () => {
-  const s = state({ spaces: { PC: "PLAYGROUND", PHONE: "COMMAND" }, deepDive: { active: true, modelId: "heart", modelName: "Heart", settings: {} as never, parts: [], focusPart: null } });
+  const s = state({ spaces: { PC: "PLAYGROUND", PHONE: "COMMAND" }, deepDive: { active: true, modelId: "heart", modelName: "Heart", settings: {} as never, parts: [], focusPart: null, collection: null, actions: [] } });
   assert.deepEqual(actionsOf("explode the view to 40%", s), [{ action: "DEEP_DIVE_SET", explode: 0.4 }]);
   assert.deepEqual(actionsOf("explode it 75 percent", s), [{ action: "DEEP_DIVE_SET", explode: 0.75 }]);
   assert.deepEqual(actionsOf("explode to half", s), [{ action: "DEEP_DIVE_SET", explode: 0.5 }]);
@@ -178,4 +178,25 @@ test("explode by percent, spin on/off, labels without AR", () => {
   // Outside Deep Dive the same words drive the selected Playground object.
   assert.deepEqual(actionsOf("explode it to 30%"), [{ action: "EXPLODE_OBJECT", target: "selected", enabled: true, amount: 0.3 }]);
   assert.deepEqual(actionsOf("stop spin"), [{ action: "SPIN_OBJECT", target: "selected", enabled: false, speed: 0 }]);
+});
+
+test("collections, brightness and model actions by voice", () => {
+  const s = state({ settings: { autoExecuteLowRisk: false, brightness: 0.3 } } as never);
+  assert.deepEqual(actionsOf("JARVIS, pull up everything we have on Iron Man", s), [{ action: "DEEP_DIVE", enabled: true, collection: "ironman" }]);
+  assert.deepEqual(actionsOf("show me all the spider man suits", s), [{ action: "DEEP_DIVE", enabled: true, collection: "spiderman" }]);
+  assert.deepEqual(actionsOf("pull up everything on quantum physics", s), [{ action: "DEEP_DIVE", enabled: true, collection: "physics" }]);
+  assert.deepEqual(actionsOf("show me everything", s), [{ action: "DEEP_DIVE", enabled: true, collection: "all" }]);
+  assert.deepEqual(actionsOf("show me the earth", s), [{ action: "SPAWN_OBJECT", object: "earth" }]); // a single model, not a collection
+  assert.deepEqual(actionsOf("deep dive the iron man suit", s), [{ action: "DEEP_DIVE", enabled: true, model: "mark3" }]);
+  assert.deepEqual(actionsOf("set brightness to 40%", s), [{ action: "SET_BRIGHTNESS", value: 0.4 }]);
+  const acts = [
+    { id: "faceplate", label: "Faceplate", kind: "toggle" as const, words: ["faceplate", "helmet", "mask"], value: false },
+    { id: "paint", label: "Paint", kind: "choice" as const, options: ["Classic", "Stealth", "Gold"], value: "Classic" },
+  ];
+  const d = state({ settings: { brightness: 0.3 } as never, spaces: { PC: "PLAYGROUND", PHONE: "COMMAND" }, deepDive: { active: true, modelId: "mark3", modelName: "Mark III", settings: {} as never, parts: [], focusPart: null, collection: null, actions: acts } });
+  assert.deepEqual(actionsOf("open the faceplate", d), [{ action: "MODEL_ACTION", id: "faceplate", value: true }]);
+  assert.deepEqual(actionsOf("close the helmet", d), [{ action: "MODEL_ACTION", id: "faceplate", value: false }]);
+  assert.deepEqual(actionsOf("open it", d), [{ action: "MODEL_ACTION", id: "faceplate", value: true }]);
+  assert.deepEqual(actionsOf("paint it gold", d), [{ action: "MODEL_ACTION", id: "paint", value: "Gold" }]);
+  assert.deepEqual(actionsOf("stealth mode", d), [{ action: "MODEL_ACTION", id: "paint", value: "Stealth" }]);
 });

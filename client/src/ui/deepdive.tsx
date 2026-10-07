@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { catalogEntry } from "@shared/catalog";
+import { COLLECTIONS, catalogEntry } from "@shared/catalog";
 import type { DeepDiveSettings, PlaygroundAction } from "@shared/types";
 import { useArc } from "../core/store";
 import { arc } from "../core/services";
@@ -8,6 +8,61 @@ export const ddAction = (action: PlaygroundAction) => arc.send({ type: "ACTION_R
 export const ddSet = (patch: Partial<DeepDiveSettings>) => ddAction({ action: "DEEP_DIVE_SET", ...patch });
 
 const EMPTY_PARTS: never[] = [];
+const EMPTY_ACTIONS: never[] = [];
+
+/** Carousel categories: All · Iron Man · Spider-Man · Space · Physics & Quantum · … */
+export function CollectionTabs({ compact = false }: { compact?: boolean }) {
+  const current = useArc((x) => x.state?.deepDive.collection ?? null);
+  const tabs = [{ id: "all", name: "All" }, ...COLLECTIONS.filter((c) => c.id !== "shapes")];
+  return (
+    <div className={`dd-cats ${compact ? "is-compact" : ""}`} role="tablist" aria-label="Model categories">
+      {tabs.map((c) => {
+        const on = (current ?? "all") === c.id;
+        return (
+          <button key={c.id} role="tab" aria-selected={on} className={on ? "is-on" : ""} onClick={() => ddAction({ action: "DEEP_DIVE", enabled: true, collection: c.id })}>
+            {c.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Things you can do to the model on stage — also by voice, or by pinching the part itself. */
+export function ModelActions() {
+  const actions = useArc((x) => x.state?.deepDive.actions ?? EMPTY_ACTIONS);
+  if (!actions.length) return null;
+  return (
+    <div className="dd-actions">
+      {actions.map((a) =>
+        a.kind === "choice" ? (
+          <div key={a.id} className="dd-action-choice">
+            <span>{a.label.toUpperCase()}</span>
+            <div className="dd-seg" role="group" aria-label={a.label}>
+              {(a.options ?? []).map((o) => (
+                <button key={o} className={a.value === o ? "is-on" : ""} onClick={() => ddAction({ action: "MODEL_ACTION", id: a.id, value: o })}>
+                  {o.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <button key={a.id} className={`dd-action ${a.value === true && a.kind === "toggle" ? "is-on" : ""}`} onClick={() => ddAction({ action: "MODEL_ACTION", id: a.id })}>
+            <i />
+            <span>{a.label.toUpperCase()}</span>
+            {a.kind === "toggle" && <b>{a.value ? "ON" : "OFF"}</b>}
+          </button>
+        ),
+      )}
+    </div>
+  );
+}
+
+/** Global scene brightness (exposure, glow, holograms). Low by default. */
+export function BrightnessControl() {
+  const b = useArc((x) => x.state?.settings.brightness ?? 0.3);
+  return <LiveSlider label="BRIGHTNESS" value={b} min={0} max={1} step={0.02} onCommit={(v) => arc.send({ type: "ACTION_REQUEST", action: { action: "SET_BRIGHTNESS", value: v } })} />;
+}
 
 export const BG_SWATCHES = [
   { name: "Space", value: "#02070f" },
@@ -87,6 +142,7 @@ export function DeepDiveControls({ compact = false }: { compact?: boolean }) {
   const labelsOn = s.labels ?? s.ar;
   return (
     <div className={`dd-controls ${compact ? "is-compact" : ""}`}>
+      <BrightnessControl />
       <div className="dd-toggles">
         <button className={`dd-ar ${s.ar ? "is-on" : ""}`} onClick={() => ddSet({ ar: !s.ar })}>
           <i />

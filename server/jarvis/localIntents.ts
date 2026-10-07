@@ -1,4 +1,4 @@
-import { catalogEntry, resolveCatalogId, resolveCountry } from "../../shared/catalog";
+import { catalogEntry, collectionOf, resolveCatalogId, resolveCollection, resolveCountry } from "../../shared/catalog";
 import type { ArcAction, ArcState } from "../../shared/types";
 import { resolveColor } from "./colors";
 
@@ -146,6 +146,49 @@ export function parseLocalIntent(raw: string, state: ArcState): LocalIntent | nu
   if (cam) {
     const to = /phone|mobile/.test(cam[1]) ? "PHONE" : "PC";
     return reply(`Switching to the ${to === "PHONE" ? "phone" : "PC"} camera, boss.`, { action: "SWITCH_CAMERA", to });
+  }
+
+  // ── Collections: "pull up everything we have on Iron Man" → carousel of that category ──
+  const coll =
+    t.match(/^(?:pull up|bring up|show(?: me)?|display|open|load|give me|what do we have on|what have we got on|list)(?: me)? (?:everything|all(?: the)?(?: stuff| models| files| data)?|the(?: whole)?(?: collection| models)?)?(?: we(?: have|'ve got)| you(?: have|'ve got))?(?: on| about| of| for| from)?(?: the)? (.+?)(?: models| collection| stuff| files| category| suits)?$/) ??
+    t.match(/^(.+?) (?:collection|models|category)$/);
+  if (coll) {
+    const id = /^(everything|all|all models|all the models|every model)$/.test(coll[1].trim()) ? "all" : resolveCollection(coll[1]);
+    // Only when it really names a collection (not "show me the earth" / a single model).
+    if (id && (id === "all" || !resolveCatalogId(coll[1]) || /everything|all|collection|models|stuff|suits|we have|have we/.test(t))) {
+      const name = id === "all" ? "everything" : collectionOf(id)!.name;
+      return reply(id === "all" ? "Here's everything, boss." : `Pulling up everything on ${name}, boss.`, { action: "DEEP_DIVE", enabled: true, collection: id });
+    }
+  }
+  if (/^(show|pull up|bring up) (me )?everything$/.test(t)) return reply("Here's everything, boss.", { action: "DEEP_DIVE", enabled: true, collection: "all" });
+
+  // ── Brightness (low by default) ──
+  const bright = t.match(/^(?:set |change |make )?(?:the )?brightness(?: to| at)? (\d{1,3})(?: ?%| percent)?$/);
+  if (bright) return reply(`Brightness ${bright[1]}%, boss.`, { action: "SET_BRIGHTNESS", value: Math.min(1, Number(bright[1]) / 100) });
+  if (/^(brighter|brightness up|increase( the)? brightness|turn (up|on) the (lights|brightness)|more light|make it brighter)$/.test(t))
+    return reply("Brighter, boss.", { action: "SET_BRIGHTNESS", value: Math.min(1, state.settings.brightness + 0.2) });
+  if (/^(dimmer|darker|brightness down|decrease( the)? brightness|dim( the)? (lights|scene|it)|turn down the (lights|brightness)|less light|make it (dimmer|darker))$/.test(t))
+    return reply("Dimmer, boss.", { action: "SET_BRIGHTNESS", value: Math.max(0, state.settings.brightness - 0.2) });
+
+  // ── Model actions on the Deep Dive stage: open the faceplate, power up the reactor, paint it gold ──
+  if (state.deepDive.active && state.deepDive.actions.length) {
+    const acts = state.deepDive.actions;
+    const ON = /^(open|raise|lift|deploy|extend|activate|enable|start|power up|power on|turn on|switch on|fire|launch|show|engage|arm)\b/;
+    const OFF = /^(close|lower|shut|retract|deactivate|disable|stop|power down|power off|turn off|switch off|hide|disengage|disarm)\b/;
+    const named = (a: (typeof acts)[number]) => [a.label.toLowerCase(), ...(a.words ?? [])].some((w) => w && t.includes(w));
+    const choice = acts.find((a) => a.kind === "choice" && (a.options ?? []).some((o) => t.includes(o.toLowerCase())) && (named(a) || /^(paint|make it|switch to|go|change to|set)/.test(t) || / (mode|scheme|finish|colou?r|paint)$/.test(t)));
+    if (choice) {
+      const opt = (choice.options ?? []).find((o) => t.includes(o.toLowerCase()))!;
+      return reply(`${opt}, boss.`, { action: "MODEL_ACTION", id: choice.id, value: opt });
+    }
+    const on = ON.test(t);
+    const off = OFF.test(t);
+    const toggles = acts.filter((a) => a.kind !== "choice");
+    const target = toggles.find(named) ?? (/\b(it|this|that)$/.test(t) && (on || off) ? toggles.find((a) => a.kind === "toggle") : undefined);
+    if (target && (on || off || target.kind === "trigger" || /^(toggle|flip|switch)/.test(t))) {
+      const value = target.kind === "toggle" ? (on ? true : off ? false : !target.value) : undefined;
+      return reply(target.kind === "trigger" ? `${target.label}, boss.` : `${target.label} ${value ? "on" : "off"}, boss.`, value === undefined ? { action: "MODEL_ACTION", id: target.id } : { action: "MODEL_ACTION", id: target.id, value });
+    }
   }
 
   // ── Explode by amount and spin on/off (Deep Dive stage or the selected Playground object) ──
