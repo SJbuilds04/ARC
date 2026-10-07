@@ -73,6 +73,15 @@ function CarouselBar() {
   );
 }
 
+/** Always on screen while diving (carousel or model). */
+function ExitButton() {
+  return (
+    <button className="btn btn--deny dd-exit arc-ui-block" onClick={() => ddAction({ action: "DEEP_DIVE", enabled: false })} title="Leave Deep Dive (Esc)">
+      <Icon.Close width={16} height={16} /> EXIT DEEP DIVE
+    </button>
+  );
+}
+
 /** Report the free space between the panels to the Deep Dive engine (labels + model live there). */
 function useSafeArea(left: RefObject<HTMLElement | null>, right: RefObject<HTMLElement | null>, deps: unknown[]) {
   useLayoutEffect(() => {
@@ -97,7 +106,7 @@ function useSafeArea(left: RefObject<HTMLElement | null>, right: RefObject<HTMLE
 
 export function DeepDiveOverlay() {
   const title = useDeepDiveTitle();
-  const ar = useArc((s) => s.state?.deepDive.settings.ar ?? false);
+  const ar = useArc((s) => s.state?.deepDive.settings.labels ?? s.state?.deepDive.settings.ar ?? false);
   const partCount = useArc((s) => s.state?.deepDive.parts.length ?? 0);
   // In AR the labels on screen ARE the parts list, so the list starts folded on smaller screens.
   const [partsOpen, setPartsOpen] = useState(() => innerWidth >= 1700);
@@ -116,6 +125,7 @@ export function DeepDiveOverlay() {
   return (
     <div className="dd-overlay">
       <LabelHost />
+      <ExitButton />
       {title ? (
         <>
           <div className="dd-panel-wrap" ref={leftRef}>
@@ -139,9 +149,6 @@ export function DeepDiveOverlay() {
                   <Icon.Pin width={16} height={16} /> {pinning ? "CLICK THE MODEL…" : "PIN LABEL"}
                 </button>
               )}
-              <button className="btn btn--tool btn--danger" onClick={() => ddAction({ action: "DEEP_DIVE", enabled: false })}>
-                <Icon.Close width={16} height={16} /> EXIT
-              </button>
             </div>
           </Panel>
           </div>

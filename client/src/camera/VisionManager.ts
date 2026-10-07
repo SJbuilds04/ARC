@@ -50,6 +50,11 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
   /** Run hand detection every Nth frame. */
   handEvery = 1;
 
+  /** 1 hand outside the Playground (lowest latency), 2 where two-hand zoom is used. */
+  setMaxHands(n: 1 | 2): void {
+    (this.tracker as unknown as { setNumHands(n: number): void }).setNumHands(n);
+  }
+
   constructor(
     private readonly role: DeviceRole,
     private readonly arc: ArcClient,

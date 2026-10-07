@@ -634,7 +634,19 @@ body.visor-open .ph {
 .dd-panel {
   width: 100%;
   max-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+/* The chamfered inner layer is the scroller, so its background and clip follow the content. */
+.dd-panel > .panel__inner,
+.dd-parts-panel > .panel__inner {
+  height: auto;
+  max-height: 100%;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(95, 216, 255, 0.35) transparent;
 }
 .dd-parts-wrap {
   position: absolute;
@@ -667,7 +679,8 @@ body.visor-open .ph {
 .dd-parts-panel {
   width: 262px;
   max-height: 100%;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 .dd-controls {
   display: flex;
@@ -1006,4 +1019,38 @@ body.visor-open .ph {
 /* Deep Dive: no empty reply placeholder over the stage */
 .desktop.is-diving .desktop__floating .response:has(.is-placeholder) {
   display: none;
+}
+
+.dd-spinrow {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px;
+}
+.dd-spinrow .dd-slider {
+  grid-template-columns: 50px 1fr 36px;
+}
+.dd-controls.is-compact .dd-spinrow .btn {
+  min-height: 44px;
+}
+.dd-exit {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  min-height: 40px;
+  padding: 0 16px;
+  z-index: 2;
+}
+
+.dd-toggles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.dd-toggles .dd-ar {
+  padding: 0 10px;
+  gap: 7px;
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
 }

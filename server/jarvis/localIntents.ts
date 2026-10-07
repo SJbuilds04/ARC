@@ -148,8 +148,29 @@ export function parseLocalIntent(raw: string, state: ArcState): LocalIntent | nu
     return reply(`Switching to the ${to === "PHONE" ? "phone" : "PC"} camera, boss.`, { action: "SWITCH_CAMERA", to });
   }
 
-  // ── Deep Dive (one model on its own stage; AR hologram + labels) ──
+  // ── Explode by amount and spin on/off (Deep Dive stage or the selected Playground object) ──
   const dd = state.deepDive;
+  const diving = dd.active && state.spaces.PC === "PLAYGROUND";
+  const amountWord = (w: string) => (/^half$/.test(w) ? 0.5 : /^(full|fully|max|maximum|all the way|completely)$/.test(w) ? 1 : Number(w) > 1 || /%|percent/.test(w) ? Number(w.replace(/[^\d.]/g, "")) / 100 : Number(w));
+  const explodeTo =
+    t.match(/^(?:explode|expand|separate|spread|open up|pull apart)(?: out| apart)?(?: (?:it|this|that|the (?:view|model|parts|object|whole thing)))?(?: (?:to|by|at|up to))? (\d{1,3}(?:\.\d+)?(?: ?%| percent)?|half|full|fully|max|maximum|all the way|completely)$/) ??
+    t.match(/^(?:set |make |change )?(?:the )?explo(?:de|ded|sion)(?: view| amount| level)?(?: to| at)? (\d{1,3}(?:\.\d+)?(?: ?%| percent)?|half|full|max)$/);
+  if (explodeTo) {
+    const amount = Math.max(0, Math.min(1, amountWord(explodeTo[1].trim())));
+    if (Number.isFinite(amount)) {
+      const pct = `${Math.round(amount * 100)}%`;
+      return diving
+        ? reply(`Exploded to ${pct}, boss.`, { action: "DEEP_DIVE_SET", explode: amount })
+        : reply(`Exploded to ${pct}, boss.`, { action: "EXPLODE_OBJECT", target: "selected", enabled: amount > 0, amount });
+    }
+  }
+  if (/^(explode|explode the (view|model|parts)|exploded view)$/.test(t) && diving) return reply("Exploded view, boss.", { action: "DEEP_DIVE_SET", explode: 1 });
+  if (/^(stop|pause|disable|turn off|kill|no)( the)? (spin|spinning|rotation|rotating)$|^(stop|pause) (it )?(spinning|rotating)$|^freeze( it)?$|^hold still$/.test(t))
+    return diving ? reply("Holding still, boss.", { action: "DEEP_DIVE_SET", spin: 0 }) : reply("Holding still, boss.", { action: "SPIN_OBJECT", target: "selected", enabled: false, speed: 0 });
+  if (/^(start|enable|turn on|resume)( the)? (spin|spinning|rotation|rotating)$/.test(t))
+    return diving ? reply("Spinning, boss.", { action: "DEEP_DIVE_SET", spin: 0.4 }) : reply("Spinning, boss.", { action: "SPIN_OBJECT", target: "selected", enabled: true, speed: 0.5 });
+
+  // ── Deep Dive (one model on its own stage; AR hologram + labels) ──
   if (/^(open |start |enable |activate |turn on |enter )?deep ?dive( mode)?$/.test(t))
     return reply("Pick a model, boss.", { action: "DEEP_DIVE", enabled: true });
   if (/^(exit|leave|close|stop|end|disable|turn off|quit)( the)? deep ?dive( mode)?$/.test(t))
@@ -191,10 +212,10 @@ export function parseLocalIntent(raw: string, state: ArcState): LocalIntent | nu
       return reply("Reassembled, boss.", { action: "DEEP_DIVE_SET", explode: 0 });
     if (/^(stop|pause) (rotating|spinning|the rotation|it)$/.test(t)) return reply("Holding still, boss.", { action: "DEEP_DIVE_SET", spin: 0 });
     if (/^(spin|rotate|keep rotating|start rotating|auto rotate)( it)?$/.test(t)) return reply("Spinning, boss.", { action: "DEEP_DIVE_SET", spin: 0.4 });
-    if (/^(show )?(all|more) labels$/.test(t)) return reply("All labels, boss.", { action: "DEEP_DIVE_SET", ar: true, detail: "all" });
-    if (/^(show )?(fewer|less|main) labels$/.test(t)) return reply("Main labels only, boss.", { action: "DEEP_DIVE_SET", ar: true, detail: "few" });
-    if (/^(hide|remove|turn off)( the| all)? labels$/.test(t)) return reply("Labels off, boss.", { action: "DEEP_DIVE_SET", ar: false });
-    if (/^(show|turn on)( the)? labels$/.test(t)) return reply("Labels on, boss.", { action: "DEEP_DIVE_SET", ar: true, detail: "auto" });
+    if (/^(show )?(all|more) labels$/.test(t)) return reply("All labels, boss.", { action: "DEEP_DIVE_SET", labels: true, detail: "all" });
+    if (/^(show )?(fewer|less|main) labels$/.test(t)) return reply("Main labels only, boss.", { action: "DEEP_DIVE_SET", labels: true, detail: "few" });
+    if (/^(hide|remove|turn off|disable)( the| all)? (labels|names)$/.test(t)) return reply("Labels off, boss.", { action: "DEEP_DIVE_SET", labels: false });
+    if (/^(show|turn on|enable|add)( the)? (labels|names|part names)$|^label (it|the parts|everything)$/.test(t)) return reply("Labels on, boss.", { action: "DEEP_DIVE_SET", labels: true, detail: "auto" });
     if (/^(zoom out|show (the )?whole (thing|model)|reset( the)? (view|camera)|unfocus)$/.test(t)) return reply("", { action: "FOCUS_PART", part: null });
     const part = t.match(/^(?:focus on|zoom (?:in )?(?:to|on)|show(?: me)?|where is|what is|what'?s|highlight|go to|point (?:at|to))(?: the)?\s+(.+?)\??$/);
     if (part && dd.parts.length) {

@@ -84,13 +84,21 @@ export function DeepDiveControls({ compact = false }: { compact?: boolean }) {
   const s = useArc((x) => x.state?.deepDive.settings);
   const hasModel = useArc((x) => Boolean(x.state?.deepDive.modelId));
   if (!s || !hasModel) return null;
+  const labelsOn = s.labels ?? s.ar;
   return (
     <div className={`dd-controls ${compact ? "is-compact" : ""}`}>
-      <button className={`dd-ar ${s.ar ? "is-on" : ""}`} onClick={() => ddSet({ ar: !s.ar })}>
-        <i />
-        <span>AR MODE</span>
-        <b>{s.ar ? "ON" : "OFF"}</b>
-      </button>
+      <div className="dd-toggles">
+        <button className={`dd-ar ${s.ar ? "is-on" : ""}`} onClick={() => ddSet({ ar: !s.ar })}>
+          <i />
+          <span>AR MODE</span>
+          <b>{s.ar ? "ON" : "OFF"}</b>
+        </button>
+        <button className={`dd-ar ${labelsOn ? "is-on" : ""}`} onClick={() => ddSet({ labels: !labelsOn })}>
+          <i />
+          <span>LABELS</span>
+          <b>{labelsOn ? "ON" : "OFF"}</b>
+        </button>
+      </div>
       <div className="dd-seg" role="group" aria-label="View style">
         {(["solid", "wireframe", "xray"] as const).map((v) => (
           <button key={v} className={s.style === v ? "is-on" : ""} onClick={() => ddSet({ style: v })}>
@@ -98,7 +106,7 @@ export function DeepDiveControls({ compact = false }: { compact?: boolean }) {
           </button>
         ))}
       </div>
-      {s.ar && (
+      {labelsOn && (
         <div className="dd-seg" role="group" aria-label="Label detail">
           {(["auto", "few", "all"] as const).map((v) => (
             <button key={v} className={s.detail === v ? "is-on" : ""} onClick={() => ddSet({ detail: v })}>
@@ -108,10 +116,15 @@ export function DeepDiveControls({ compact = false }: { compact?: boolean }) {
         </div>
       )}
       <LiveSlider label="EXPLODE" value={s.explode} min={0} max={1} step={0.01} onCommit={(v) => ddSet({ explode: v })} />
-      <LiveSlider label="SPIN" value={s.spin} min={0} max={1.5} step={0.05} onCommit={(v) => ddSet({ spin: v })} />
+      <div className="dd-spinrow">
+        <button className={`btn btn--tool ${s.spin > 0 ? "is-on" : ""}`} onClick={() => ddSet({ spin: s.spin > 0 ? 0 : 0.35 })}>
+          {s.spin > 0 ? "■ STOP SPIN" : "▶ SPIN"}
+        </button>
+        <LiveSlider label="SPEED" value={s.spin} min={0} max={1.5} step={0.05} onCommit={(v) => ddSet({ spin: v })} />
+      </div>
       <Swatches label="BACKGROUND" list={BG_SWATCHES} value={s.bg} onPick={(v) => ddSet({ bg: v })} />
       <Swatches label="HOLOGRAM" list={HOLO_SWATCHES} value={s.color} onPick={(v) => ddSet({ color: v })} />
-      {s.ar && <Swatches label="LABELS" list={HOLO_SWATCHES} value={s.labelColor} onPick={(v) => ddSet({ labelColor: v })} />}
+      {labelsOn && <Swatches label="LABELS" list={HOLO_SWATCHES} value={s.labelColor} onPick={(v) => ddSet({ labelColor: v })} />}
     </div>
   );
 }

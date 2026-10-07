@@ -163,3 +163,19 @@ test("colour names resolve to hex", () => {
   assert.equal(resolveColor("bright green"), "#2fe07a");
   assert.equal(resolveColor("flurple"), null);
 });
+
+test("explode by percent, spin on/off, labels without AR", () => {
+  const s = state({ spaces: { PC: "PLAYGROUND", PHONE: "COMMAND" }, deepDive: { active: true, modelId: "heart", modelName: "Heart", settings: {} as never, parts: [], focusPart: null } });
+  assert.deepEqual(actionsOf("explode the view to 40%", s), [{ action: "DEEP_DIVE_SET", explode: 0.4 }]);
+  assert.deepEqual(actionsOf("explode it 75 percent", s), [{ action: "DEEP_DIVE_SET", explode: 0.75 }]);
+  assert.deepEqual(actionsOf("explode to half", s), [{ action: "DEEP_DIVE_SET", explode: 0.5 }]);
+  assert.deepEqual(actionsOf("set explode to 20", s), [{ action: "DEEP_DIVE_SET", explode: 0.2 }]);
+  assert.deepEqual(actionsOf("explode the view", s), [{ action: "DEEP_DIVE_SET", explode: 1 }]);
+  assert.deepEqual(actionsOf("stop spin", s), [{ action: "DEEP_DIVE_SET", spin: 0 }]);
+  assert.deepEqual(actionsOf("start spinning", s), [{ action: "DEEP_DIVE_SET", spin: 0.4 }]);
+  assert.deepEqual(actionsOf("show labels", s), [{ action: "DEEP_DIVE_SET", labels: true, detail: "auto" }]);
+  assert.deepEqual(actionsOf("hide labels", s), [{ action: "DEEP_DIVE_SET", labels: false }]);
+  // Outside Deep Dive the same words drive the selected Playground object.
+  assert.deepEqual(actionsOf("explode it to 30%"), [{ action: "EXPLODE_OBJECT", target: "selected", enabled: true, amount: 0.3 }]);
+  assert.deepEqual(actionsOf("stop spin"), [{ action: "SPIN_OBJECT", target: "selected", enabled: false, speed: 0 }]);
+});

@@ -148,6 +148,14 @@ if (playground) {
   });
 }
 
+// Track one hand outside the Playground (palm detection then only runs when the hand is lost —
+// much lower latency); two in the Playground / Deep Dive, where two-hand zoom is used.
+useArc.subscribe((s, prev) => {
+  const want = s.state?.spaces[ROLE] === "PLAYGROUND" ? 2 : 1;
+  if (want !== (prev.state?.spaces[ROLE] === "PLAYGROUND" ? 2 : 1) || !prev.state) vision.setMaxHands(want);
+});
+vision.setMaxHands(1);
+
 // ─── Server events → UI state ───
 
 arc.on("JARVIS_RESPONSE", (m) => useArc.setState({ response: { id: m.id, text: m.text, attachments: m.attachments, primary: m.primary, at: Date.now() } }));

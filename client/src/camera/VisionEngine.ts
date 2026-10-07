@@ -26,6 +26,7 @@ interface Runner<R> {
   readonly kind: "worker" | "main";
   load(): Promise<void>;
   run(video: HTMLVideoElement, ts: number, aspect: number): Promise<R>;
+  setNumHands?(n: number): void;
   dispose(): void;
 }
 
@@ -79,6 +80,10 @@ class WorkerRunner<R> implements Runner<R> {
     return this.decode(m, aspect);
   }
 
+  setNumHands(n: number): void {
+    this.worker.postMessage({ type: "options", numHands: n });
+  }
+
   dispose(): void {
     this.worker.terminate();
   }
@@ -107,6 +112,9 @@ class MainHands implements Runner<Hand[]> {
   }
   async run(video: HTMLVideoElement, ts: number) {
     return this.t.detect(video, ts);
+  }
+  setNumHands(n: number) {
+    this.t.setNumHands(n);
   }
   dispose() {}
 }
@@ -148,12 +156,21 @@ class ModelSlot<R> implements ModelHandle {
     return this.runner ? `${this.runner.kind === "worker" ? "WORKER" : "MAIN"} · ${this.runner.delegate ?? "?"}` : "—";
   }
 
+  private numHands: number | null = null;
+  /** Max hands to track (hands model only). Applied now and to whichever runner gets picked. */
+  setNumHands(n: number): void {
+    if (this.numHands === n) return;
+    this.numHands = n;
+    if (this.ready) this.runner?.setNumHands?.(n);
+  }
+
   load(): Promise<void> {
     if (this.ready) return Promise.resolve();
     this.loading ??= this.pick().then(
       () => {
         this.ready = true;
         this.error = null;
+        if (this.numHands !== null) this.runner?.setNumHands?.(this.numHands);
       },
       (err) => {
         this.loading = null;
@@ -206,7 +223,7 @@ export class VisionEngine {
     const canWorker =
       typeof Worker !== "undefined" && typeof OffscreenCanvas !== "undefined" && typeof createImageBitmap === "function" && !new URLSearchParams(location.search).has("mainvision");
     this.hands = new ModelSlot<Hand[]>(
-      canWorker ? () => new WorkerRunner<Hand[]>("hands", (m) => (m.hands as Hand[]) ?? [], { resize: 640 }) : null,
+      canWorker ? () => new WorkerRunner<Hand[]>("hands", (m) => (m.hands as Hand[]) ?? [], { resize: 480 }) : null,
       () => new MainHands(),
     );
     this.face = new ModelSlot<FaceResult>(canWorker ? () => new WorkerRunner<FaceResult>("face", decodeFace, { returnBitmap: true }) : null, () => new MainFace());

@@ -125,13 +125,18 @@ export class DeepDive {
 
     if (!dd.modelId && this.viewMode !== "carousel") {
       this.viewMode = "carousel";
-      this.engine.setView({ ...HOME, distance: this.carousel.radius + 4.4, elevation: 0.04, target: new THREE.Vector3(0, STAGE_Y - 0.1, 0) });
+      this.engine.setView(this.carouselView());
     }
-    if (dd.modelId !== (this.model?.id ?? null) && dd.modelId !== this.loading) void this.load(dd.modelId);
+    // A different model was asked for (null = back to the carousel: unload the current one).
+    if (dd.modelId !== (this.model?.id ?? null) && (dd.modelId === null || dd.modelId !== this.loading)) void this.load(dd.modelId);
     else if (this.model?.id.startsWith("m-")) this.syncPinnedLabels(library);
 
     if (dd.focusPart !== this.focusId) this.focus(dd.focusPart);
     this.labels.setInfo(this.partInfo);
+  }
+
+  private carouselView(): View {
+    return { ...HOME, distance: this.carousel.radius + 4.6, elevation: 0.04, target: new THREE.Vector3(0, STAGE_Y - 0.05, 0) };
   }
 
   /** The overlay reports where its panels are, so labels and the model use the space between them. */
@@ -181,9 +186,10 @@ export class DeepDive {
 
   private async load(id: string | null): Promise<void> {
     this.unload();
+    this.loading = null;
     this.focusId = null;
     if (!id) {
-      this.engine.setView({ ...HOME, distance: this.carousel.radius + 3.1, elevation: 0.08 });
+      this.engine.setView(this.carouselView());
       return;
     }
     this.loading = id;
@@ -285,7 +291,8 @@ export class DeepDive {
 
   private updateLabels(s: DeepDiveSettings): void {
     const m = this.model!;
-    const show = s.ar || Boolean(this.focusId);
+    const labelsOn = s.labels ?? s.ar;
+    const show = labelsOn || Boolean(this.focusId);
     if (!show) {
       this.labels.hide();
       return;
@@ -307,7 +314,7 @@ export class DeepDive {
       centre,
       radius,
       // A focused part gets the stage to itself; otherwise zoom decides.
-      (p) => (focus ? p.id === focus : s.ar && (p.level === 1 || allParts)),
+      (p) => (focus ? p.id === focus : labelsOn && (p.level === 1 || allParts)),
       withInfo,
       focus,
       s.labelColor,

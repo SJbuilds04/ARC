@@ -92,7 +92,7 @@ export const PlaygroundActionSchema = z.discriminatedUnion("action", [
     value: z.boolean(),
   }),
   z.object({ action: z.literal("SHOW_LOCATION"), target: objectRef, location: text(80) }),
-  z.object({ action: z.literal("EXPLODE_OBJECT"), target: objectRef, enabled: z.boolean().default(true) }),
+  z.object({ action: z.literal("EXPLODE_OBJECT"), target: objectRef, enabled: z.boolean().default(true), amount: z.number().min(0).max(100).optional() }),
   z.object({ action: z.literal("CLEAR_SCENE") }),
   z.object({ action: z.literal("RESET_VIEW") }),
   /** Deep Dive: one model on its own stage. No `model` opens the model carousel. */
@@ -100,13 +100,15 @@ export const PlaygroundActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("DEEP_DIVE_SET"),
     ar: z.boolean().optional(),
+    labels: z.boolean().optional(),
     bg: z.string().trim().max(30).optional(),
     color: z.string().trim().max(30).optional(),
     labelColor: z.string().trim().max(30).optional(),
     style: z.enum(["solid", "wireframe", "xray"]).optional(),
     spin: z.number().min(0).max(3).optional(),
     detail: z.enum(["auto", "few", "all"]).optional(),
-    explode: z.number().min(0).max(1).optional(),
+    /** 0..1 (fractions) — percentages up to 100 are accepted and normalised by ARC. */
+    explode: z.number().min(0).max(100).optional(),
   }),
   /** Deep Dive model carousel: spin it or pick the model in front. */
   z.object({ action: z.literal("CAROUSEL"), command: z.enum(["next", "previous", "select"]) }),

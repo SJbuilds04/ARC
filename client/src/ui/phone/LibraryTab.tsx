@@ -30,6 +30,7 @@ function useUpload() {
 }
 
 function ModelSheet({ item, onClose }: { item: Item; onClose: () => void }) {
+  const diving = useArc((s) => Boolean(s.state?.deepDive.active) && s.state?.spaces.PC === "PLAYGROUND");
   const [name, setName] = useState(item.name);
   const [renaming, setRenaming] = useState(false);
   const run = (fn: () => void) => {
@@ -47,11 +48,13 @@ function ModelSheet({ item, onClose }: { item: Item; onClose: () => void }) {
         </div>
         <div className="sheet__rows">
           <button className="btn" onClick={() => run(() => arc.send({ type: "ACTION_REQUEST", action: { action: "DEEP_DIVE", enabled: true, model: item.id } }))}>
-            <Icon.Dive width={18} height={18} /> DEEP DIVE ON PC
+            <Icon.Dive width={18} height={18} /> {diving ? "SHOW IN DEEP DIVE" : "DEEP DIVE ON PC"}
           </button>
-          <button className="btn btn--tool" onClick={() => run(() => arc.send({ type: "ACTION_REQUEST", action: { action: "SPAWN_OBJECT", object: item.id } }))}>
-            <Icon.Cube width={18} height={18} /> SPAWN IN PLAYGROUND
-          </button>
+          {!diving && (
+            <button className="btn btn--tool" onClick={() => run(() => arc.send({ type: "ACTION_REQUEST", action: { action: "SPAWN_OBJECT", object: item.id } }))}>
+              <Icon.Cube width={18} height={18} /> SPAWN IN PLAYGROUND
+            </button>
+          )}
           {item.imported &&
             (renaming ? (
               <form

@@ -299,7 +299,7 @@ export class ObjectManager extends Emitter<ObjectEvents> {
           else this.emit("message", { level: "warning", text: `${obj.name} has no ${cmd.property}` });
           break;
         case "EXPLODE_OBJECT":
-          if (obj.built.explode) obj.explodeTarget = cmd.enabled ? 1 : 0;
+          if (obj.built.explode) obj.explodeTarget = cmd.enabled ? Math.min(1, (cmd.amount ?? 1) > 1 ? (cmd.amount ?? 100) / 100 : (cmd.amount ?? 1)) : 0;
           else this.emit("message", { level: "warning", text: `${obj.name} can't be exploded` });
           break;
         case "SHOW_LOCATION":

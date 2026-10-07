@@ -54,7 +54,7 @@ const PINCH_ON = 0.26;
 const PINCH_OFF = 0.4;
 const POSE_STABLE_FRAMES = 3;
 const LOST_AFTER_MS = 260;
-const CLICK_LOCK_MS = 130;
+const CLICK_LOCK_MS = 80;
 
 /** Comfortable region of the camera frame mapped to the full screen. */
 const REGION = { x0: 0.14, x1: 0.86, y0: 0.1, y1: 0.75 };
@@ -211,8 +211,8 @@ export class GestureManager extends Emitter<GestureEvents> {
       key: this.nextKey++,
       wrist,
       // Steady when still, near-zero lag when moving (high beta).
-      fx: new OneEuroFilter(1.2, 12, 1),
-      fy: new OneEuroFilter(1.2, 12, 1),
+      fx: new OneEuroFilter(2.2, 60, 1.5),
+      fy: new OneEuroFilter(2.2, 60, 1.5),
       pinching: false,
       pose: "NONE",
       candidate: "NONE",

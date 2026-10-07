@@ -174,7 +174,7 @@ function DeepDiveRemote({ go }: { go: (t: PhoneTab) => void }) {
   const title = useDeepDiveTitle();
   const focus = useArc((s) => s.state?.deepDive.focusPart ?? null);
   const parts = useArc((s) => s.state?.deepDive.parts ?? EMPTY);
-  const ar = useArc((s) => s.state?.deepDive.settings.ar ?? false);
+  const labelsOn = useArc((s) => s.state?.deepDive.settings.labels ?? s.state?.deepDive.settings.ar ?? false);
   if (!title)
     return (
       <Panel title="PICK A MODEL ON THE PC" className="ph-card">
@@ -193,6 +193,9 @@ function DeepDiveRemote({ go }: { go: (t: PhoneTab) => void }) {
         <button className="ph-link" onClick={() => go("library")}>
           Or choose from the Library →
         </button>
+        <button className="btn btn--deny ph-wide" onClick={() => ddAction({ action: "DEEP_DIVE", enabled: false })}>
+          EXIT DEEP DIVE
+        </button>
       </Panel>
     );
   const focused = parts.find((p) => p.id === focus);
@@ -201,6 +204,14 @@ function DeepDiveRemote({ go }: { go: (t: PhoneTab) => void }) {
       <Panel className="ph-card ph-dive-head">
         <span className="ph-kicker">{title.category} · DEEP DIVE</span>
         <b className="ph-title">{title.name}</b>
+        <div className="ph-tools">
+          <button className="btn btn--tool" onClick={() => ddAction({ action: "DEEP_DIVE", enabled: true })}>
+            <Icon.Library width={16} height={16} /> CHANGE MODEL
+          </button>
+          <button className="btn btn--tool btn--danger" onClick={() => ddAction({ action: "DEEP_DIVE", enabled: false })}>
+            <Icon.Close width={16} height={16} /> EXIT DEEP DIVE
+          </button>
+        </div>
         {focused && (
           <div className="ph-focus">
             <span>FOCUSED</span>
@@ -215,9 +226,9 @@ function DeepDiveRemote({ go }: { go: (t: PhoneTab) => void }) {
       <Touchpad hint="Drag to turn · pinch to zoom" />
       <TiltToggle />
       <Panel title={`PARTS${parts.length ? ` · ${parts.length}` : ""}`} className="ph-card">
-        {!ar && parts.length > 0 && (
-          <button className="ph-link" onClick={() => ddAction({ action: "DEEP_DIVE_SET", ar: true })}>
-            Turn on AR mode to label every part →
+        {!labelsOn && parts.length > 0 && (
+          <button className="ph-link" onClick={() => ddAction({ action: "DEEP_DIVE_SET", labels: true })}>
+            Show labels on the PC →
           </button>
         )}
         <PartsList namesOnly />

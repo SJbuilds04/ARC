@@ -180,6 +180,32 @@ export class Jarvis {
     }
   }
 
+  /**
+   * While Deep Dive is open there is one model on stage, so Playground object commands apply to it:
+   * spawn = show that model, explode / spin / wireframe = the stage's look. Null = nothing to do.
+   */
+  private forDeepDive(action: ArcAction): ArcAction | null {
+    const s = this.core.getState();
+    if (!s.deepDive.active || s.spaces.PC !== "PLAYGROUND") return action;
+    switch (action.action) {
+      case "SPAWN_OBJECT":
+        return { action: "DEEP_DIVE", enabled: true, model: action.object };
+      case "EXPLODE_OBJECT":
+        return { action: "DEEP_DIVE_SET", explode: action.enabled ? toFraction(action.amount ?? 1) : 0 };
+      case "SPIN_OBJECT":
+        return { action: "DEEP_DIVE_SET", spin: action.enabled ? Math.min(3, Math.abs(action.speed || 0.4)) : 0 };
+      case "SET_PROPERTY":
+        if (action.property === "wireframe") return { action: "DEEP_DIVE_SET", style: action.value ? "wireframe" : "solid" };
+        if (action.property === "labels") return { action: "DEEP_DIVE_SET", ar: action.value };
+        return action;
+      case "SELECT_OBJECT":
+      case "MOVE_OBJECT":
+        return null; // nothing to select or move on a one-model stage
+      default:
+        return action;
+    }
+  }
+
   /** "heart", "my drone", "m-drone" → a model id + display name (built-in or imported). */
   resolveModel(text: string): { id: string; name: string } | null {
     if (catalogEntry(text)) return { id: text, name: catalogEntry(text)!.name };
@@ -226,6 +252,7 @@ export class Jarvis {
     }
     const { action: _a, ...patch } = action;
     void _a;
+    if (patch.explode !== undefined) patch.explode = toFraction(patch.explode);
     for (const key of ["bg", "color", "labelColor"] as const) {
       if (patch[key] === undefined) continue;
       const hex = resolveColor(patch[key]!);
@@ -314,7 +341,9 @@ export class Jarvis {
   }
 
   private async runActions(actions: ArcAction[], device: DeviceRole): Promise<void> {
-    for (const action of actions) {
+    for (const raw of actions) {
+      const action = this.forDeepDive(raw);
+      if (!action) continue;
       try {
         if (action.action === "SET_MODE") this.core.setMode(action.mode, device);
         else if (action.action === "SWITCH_CAMERA") this.core.switchCamera(action.to);
@@ -535,4 +564,9 @@ export function matchPart(text: string, parts: DeepDivePart[]): DeepDivePart | n
     parts.find((p) => t.includes(norm(p.name))) ??
     null
   );
+}
+
+/** 0.5 → 0.5, 50 → 0.5 (percent), clamped to 0..1. */
+export function toFraction(v: number): number {
+  return Math.max(0, Math.min(1, v > 1 ? v / 100 : v));
 }

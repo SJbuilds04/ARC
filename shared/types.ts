@@ -128,6 +128,8 @@ export interface LibraryModel {
 
 export interface DeepDiveSettings {
   ar: boolean;
+  /** Part labels on screen (with or without the AR hologram look). */
+  labels: boolean;
   bg: string;
   color: string;
   labelColor: string;

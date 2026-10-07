@@ -57,6 +57,11 @@ scope.onmessage = async (e: MessageEvent) => {
     }
     return;
   }
+  if (m.type === "options") {
+    // One hand = palm detection only runs when the hand is lost (much faster); two = always searching.
+    if (hands && typeof m.numHands === "number") await hands.setOptions({ numHands: m.numHands });
+    return;
+  }
   if (m.type !== "frame") return;
   const bitmap: ImageBitmap = m.bitmap;
   const ts = Math.max(m.ts, lastTs + 1);

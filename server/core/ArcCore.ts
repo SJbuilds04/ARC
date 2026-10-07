@@ -36,6 +36,7 @@ interface PersistedSession {
 
 export const DEEP_DIVE_DEFAULTS: DeepDiveSettings = {
   ar: false,
+  labels: false,
   bg: "#02070f",
   color: "#5fd8ff",
   labelColor: "#bff3ff",
@@ -361,13 +362,18 @@ export class ArcCore extends EventEmitter<CoreEvents> {
       dd.modelName = modelName;
       dd.parts = [];
       dd.focusPart = null;
-      if (modelId) dd.settings = { ...DEEP_DIVE_DEFAULTS, ...this.session.deepDivePrefs?.[modelId] };
+      if (modelId) {
+        const saved = this.session.deepDivePrefs?.[modelId];
+        dd.settings = { ...DEEP_DIVE_DEFAULTS, ...saved, labels: saved?.labels ?? saved?.ar ?? false };
+      }
     }
     this.changed();
   }
 
   updateDeepDive(patch: Partial<DeepDiveSettings>): void {
     const dd = this.state.deepDive;
+    // Turning AR on brings the labels with it (they can still be hidden separately).
+    if (patch.ar === true && patch.labels === undefined) patch = { ...patch, labels: true };
     dd.settings = { ...dd.settings, ...patch };
     if (dd.modelId) {
       this.session.deepDivePrefs = { ...this.session.deepDivePrefs, [dd.modelId]: dd.settings };

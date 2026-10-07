@@ -47,6 +47,10 @@ export class HandTracker {
     return this.loading;
   }
 
+  setNumHands(n: number): void {
+    void this.landmarker?.setOptions({ numHands: n });
+  }
+
   /** Detect hands in the current video frame. Landmarks are in raw (un-mirrored) image space. */
   detect(video: HTMLVideoElement, nowMs: number): Hand[] {
     if (!this.landmarker || video.readyState < 2) return [];

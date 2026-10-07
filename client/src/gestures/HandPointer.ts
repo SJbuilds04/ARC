@@ -1,5 +1,8 @@
 import type { GestureManager, Pose } from "./GestureManager";
 
+/** How far ahead (ms) the cursor is extrapolated to cancel camera + inference delay. */
+const LEAD_MS = 30;
+
 /**
  * HandPointer — bridges gestures to the DOM. Any <button> (or element with
  * [data-hand]) becomes hand-interactive: point to hover, pinch to click.
@@ -49,12 +52,14 @@ export class HandPointer {
     // Velocity from consecutive samples (px/ms), lightly smoothed — used to predict between camera frames.
     if (this.visible && this.lastSampleAt) {
       const dt = Math.max(8, now - this.lastSampleAt);
-      this.vx = this.vx * 0.5 + ((x - this.x) / dt) * 0.5;
-      this.vy = this.vy * 0.5 + ((y - this.y) / dt) * 0.5;
+      this.vx = this.vx * 0.3 + ((x - this.x) / dt) * 0.7;
+      this.vy = this.vy * 0.3 + ((y - this.y) / dt) * 0.7;
     }
     this.x = x;
     this.y = y;
     this.lastSampleAt = now;
+    // Draw the new sample immediately instead of waiting for the next display frame.
+    if (this.visible) this.cursor.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
     if (!this.visible) {
       this.visible = true;
       this.cx = x;
@@ -84,20 +89,19 @@ export class HandPointer {
   private vy = 0;
   private lastSampleAt = 0;
   private glideRaf = 0;
-  /** Renders at display refresh: predicted position (last sample + velocity × age), lightly eased. */
+  /**
+   * Latency first: every display frame the cursor jumps straight to the predicted position
+   * (last sample + velocity × (age + one camera frame of lead)), no easing. The lead hides part
+   * of the camera → model delay; it only applies while the hand is actually moving.
+   */
   private startGlide(): void {
     cancelAnimationFrame(this.glideRaf);
-    let last = performance.now();
     const step = (now: number) => {
       if (!this.visible) return;
-      const dt = Math.min(0.05, (now - last) / 1000);
-      last = now;
-      const age = Math.min(45, now - this.lastSampleAt); // never extrapolate beyond ~1.5 camera frames
-      const px = this.x + this.vx * age;
-      const py = this.y + this.vy * age;
-      const k = 1 - Math.exp(-dt * 50);
-      this.cx += (px - this.cx) * k;
-      this.cy += (py - this.cy) * k;
+      const lead = Math.min(70, now - this.lastSampleAt + LEAD_MS);
+      const moving = Math.hypot(this.vx, this.vy) > 0.05; // px/ms
+      this.cx = this.x + (moving ? this.vx * lead : 0);
+      this.cy = this.y + (moving ? this.vy * lead : 0);
       this.cursor.style.transform = `translate3d(${this.cx.toFixed(1)}px, ${this.cy.toFixed(1)}px, 0)`;
       this.glideRaf = requestAnimationFrame(step);
     };

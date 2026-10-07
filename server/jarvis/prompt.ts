@@ -62,8 +62,9 @@ ARC:
 Deep Dive (one model alone on a stage; AR = blue hologram with labelled parts):
  {"action":"DEEP_DIVE","enabled":true,"model":"<kind or imported model name>"}   // no "model" = open the model carousel
  {"action":"DEEP_DIVE","enabled":false}
- {"action":"DEEP_DIVE_SET","ar":true|false,"bg":"<colour name or #hex>","color":"<hologram colour>","labelColor":"<colour>","style":"solid"|"wireframe"|"xray","spin":<0..3>,"detail":"auto"|"few"|"all","explode":<0..1>}   // include only the fields to change
+ {"action":"DEEP_DIVE_SET","ar":true|false,"labels":true|false,"bg":"<colour name or #hex>","color":"<hologram colour>","labelColor":"<colour>","style":"solid"|"wireframe"|"xray","spin":<0..3>,"detail":"auto"|"few"|"all","explode":<0..1>}   // include only the fields to change
  {"action":"FOCUS_PART","part":"<part name>"|null}
+ // While Deep Dive is open, use DEEP_DIVE_SET for explode/spin/style. "explode": 0..1 — "explode to 40%" → 0.4. "stop spin" → "spin":0.
  {"action":"CAROUSEL","command":"next"|"previous"|"select"}
 
 Never invent other actions. Never output shell commands. If something isn't possible with these actions, say so briefly.
