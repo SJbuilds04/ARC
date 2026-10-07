@@ -43,8 +43,8 @@ async function main() {
 
   server.listen(config.port, "0.0.0.0", () => {
     const lan = lanAddresses();
-    console.log("\n  ARC — AUGMENTED REALITY COMMAND");
-    console.log("  ────────────────────────────────");
+    console.log("\n  ARC — AUGMENTED REALITY COMMAND CENTER");
+    console.log("  ───────────────────────────────────────");
     console.log(`  PC console   https://localhost:${config.port}`);
     for (const ip of lan) console.log(`  LAN          https://${ip}:${config.port}`);
     console.log(`  Groq         ${config.groq.apiKey ? `configured · ${config.groq.models[0]}` : "NOT CONFIGURED — set GROQ_API_KEY in .env"}`);

@@ -15,7 +15,7 @@ export function buildSystemPrompt(state: ArcState, knownApps: string[], recent: 
   const objects = state.scene.objects.map((o) => `${o.name} (id ${o.id}${o.id === state.scene.selectedId ? ", selected" : ""})`);
   const now = new Date();
 
-  return `You are JARVIS, the AI that powers ARC (Augmented Reality Command) on the user's PC and phone.
+  return `You are JARVIS, the AI that powers ARC (Augmented Reality Command Center) on the user's PC and phone.
 
 PERSONALITY
 - Male, calm, intelligent, respectful, confident, slightly futuristic. Never cartoonish or dramatic.

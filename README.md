@@ -1,4 +1,4 @@
-# ARC — Augmented Reality Command
+# ARC — Augmented Reality Command Center
 
 **JARVIS is the brain. ARC is the interface.**
 

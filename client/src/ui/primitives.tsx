@@ -182,7 +182,7 @@ export function ArcLogo({ compact = false }: { compact?: boolean }) {
         <path d="M58 42V4h30a10 10 0 0 1 0 20H64l26 18" />
         <path d="M166 4h-48a12 12 0 0 0-12 12v14a12 12 0 0 0 12 12h48" />
       </svg>
-      {!compact && <span className="arc-logo__sub">Augmented Reality Command</span>}
+      {!compact && <span className="arc-logo__sub">Augmented Reality Command Center</span>}
     </div>
   );
 }
