@@ -34,6 +34,12 @@ test("wake word handling", () => {
 
 test("MVP flow commands resolve locally", () => {
   assert.deepEqual(actionsOf("JARVIS, open VS Code."), [{ action: "OPEN_APPLICATION", target: "vs code" }]);
+  // "open <model>" opens the 3D model; other names stay apps
+  assert.deepEqual(actionsOf("JARVIS, open the black hole in playground mode."), [{ action: "SPAWN_OBJECT", object: "black_hole" }]);
+  assert.deepEqual(actionsOf("open iron spider"), [{ action: "SPAWN_OBJECT", object: "iron_spider" }]);
+  assert.deepEqual(actionsOf("open the arc reactor"), [{ action: "SPAWN_OBJECT", object: "arc_reactor" }]);
+  assert.deepEqual(actionsOf("open gargantua in deep dive"), [{ action: "DEEP_DIVE", enabled: true, model: "black_hole" }]);
+  assert.deepEqual(actionsOf("open google earth"), [{ action: "OPEN_APPLICATION", target: "google earth" }]);
   assert.deepEqual(actionsOf("Jarvis, enter playground"), [{ action: "SET_MODE", mode: "PLAYGROUND" }]);
   assert.deepEqual(actionsOf("Spawn a 3D Earth"), [{ action: "SPAWN_OBJECT", object: "earth" }]);
   assert.deepEqual(actionsOf("show india"), [

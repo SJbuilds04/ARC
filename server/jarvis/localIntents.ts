@@ -89,6 +89,29 @@ const DIRECTIONS: Record<string, "left" | "right" | "up" | "down" | "forward" | 
   middle: "center",
 };
 
+const plain = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * "open the black hole in playground mode" → the 3D model it names, if the words are just that
+ * model's name (built-in or one of yours). Anything else ("open google earth") stays an app.
+ */
+function modelNamed(target: string, state: ArcState): { id: string; name: string; dive: boolean } | null {
+  const t = plain(target);
+  const dive = /\bdeep ?dive\b/.test(t);
+  const core = t
+    .replace(/\b(in|into|on|to|inside)( the)? (playground|deep ?dive)( mode)?$/, "")
+    .replace(/^(the|a|an|my|our) /, "")
+    .replace(/\b(3d|3 d|three d|model|hologram|holographic|object)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!core) return null;
+  const id = resolveCatalogId(core);
+  const entry = id ? catalogEntry(id) : undefined;
+  if (entry && [entry.name, entry.id.replace(/_/g, " "), ...entry.aliases].map(plain).includes(core)) return { id: entry.id, name: entry.name, dive };
+  const mine = state.library.find((m) => plain(m.name) === core);
+  return mine ? { id: mine.id, name: mine.name, dive } : null;
+}
+
 export function parseLocalIntent(raw: string, state: ArcState): LocalIntent | null {
   const t = normalize(raw);
   if (!t) return { kind: "wake" };
@@ -380,6 +403,12 @@ export function parseLocalIntent(raw: string, state: ArcState): LocalIntent | nu
   const open = t.match(/^(?:open|launch|start|run|fire up|load up|bring up)(?: up)?(?: the| my)? (.+?)(?: app| application| for me)?$/);
   if (open) {
     const target = open[1];
+    // "open iron spider" / "open the black hole in playground mode" mean the 3D model, not an app
+    const model = modelNamed(target, state);
+    if (model)
+      return model.dive
+        ? reply(`Deep diving into ${model.name}, boss.`, { action: "DEEP_DIVE", enabled: true, model: model.id })
+        : reply(`${model.name} coming up, boss.`, { action: "SPAWN_OBJECT", object: model.id });
     if (/\.(com|org|net|io|ai|dev|in|co)(\/|$)|\b(website|site)$/.test(target))
       return reply("Certainly, boss.", { action: "OPEN_WEBSITE", url: target.replace(/\s+(website|site)$/, "") });
     return reply("Certainly, boss.", { action: "OPEN_APPLICATION", target });
