@@ -16,7 +16,7 @@ import { isLight } from "../core/theme";
 
 /** The stage colour Deep Dive starts with; in the light theme it means the light studio. */
 const DEFAULT_BG = "#02070f";
-const LIGHT_STUDIO = "#e9eef3";
+const LIGHT_STUDIO = "#f4f8fb";
 
 const STAGE_Y = 0.1;
 const MODEL_RADIUS = 1.35;
@@ -446,22 +446,23 @@ export class DeepDive {
     const dense = m.tris > DENSE_TRIANGLES;
     const color = new THREE.Color(s.color);
     const highlight = new THREE.Color("#ffb347");
-    // light theme: the hologram is drawn in ink on a pale paper-like core instead of glowing over a dark one
+    // light theme: black glass with light-blue rims and edges (full contrast on white) instead of a glow
     const light = isLight();
     const core = light
-      ? new THREE.MeshStandardMaterial({ color: 0xeef3f8, metalness: 0, roughness: 0.85, transparent: true, opacity: 0.35, depthWrite: true })
+      ? new THREE.MeshStandardMaterial({ color: 0x07090c, metalness: 0.55, roughness: 0.32, transparent: true, opacity: 0.9, depthWrite: true })
       : new THREE.MeshStandardMaterial({ color: color.clone().multiplyScalar(0.08), emissive: color.clone().multiplyScalar(0.05), metalness: 0.4, roughness: 0.4, transparent: true, opacity: 0.6, depthWrite: true });
     const shell = holoMaterial(color, { opacity: 0.95, fresnel: 2, scan: 1 });
     const shellHot = holoMaterial(highlight, { opacity: 1, fresnel: 1.6, scan: 1 });
     // Wireframe: hidden-line edges over a dark silhouette, at brightness-controlled intensity
     // (drawing every edge of a dense model additively saturates to white).
     const lineColor = s.ar ? color.clone() : new THREE.Color("#9fd6ff");
-    const wireCore = new THREE.MeshBasicMaterial({ color: light ? new THREE.Color(0xf4f7fa) : lineColor.clone().multiplyScalar(0.045), polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    const wireCore = new THREE.MeshBasicMaterial({ color: light ? new THREE.Color(2.6, 2.6, 2.6) : lineColor.clone().multiplyScalar(0.045), polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     const wireLines = lineMaterial(lineColor, dense ? 0.8 : 0.6);
     const hotLines = lineMaterial(highlight, 0.95);
     // x-ray builds up from many see-through layers; ink doesn't add up like light, so it's drawn bolder
-    const xray = holoMaterial(s.ar ? color : new THREE.Color(light ? "#5b8db8" : "#d6ecff"), { opacity: dense ? 0.26 : 0.55, fresnel: 1.4, scan: s.ar ? 0.8 : 0, ink: { tone: 0.22, alpha: 4.5 } });
+    const xray = holoMaterial(s.ar ? color : new THREE.Color(light ? "#5b8db8" : "#d6ecff"), { opacity: dense ? 0.26 : 0.55, fresnel: 1.4, scan: s.ar ? 0.8 : 0, ink: { alpha: dense ? 2.6 : 1.5 } });
     const lineMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false });
+    lineMat.userData.inkColor = 0x4fb3f6; // on black glass the edges are light blue
     this.styleMats = [core, shell, shellHot, wireCore, wireLines, hotLines, xray, lineMat];
 
     m.root.traverse((o) => {

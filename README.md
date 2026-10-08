@@ -110,6 +110,19 @@ Playground shows every model with its normal look. **Deep Dive** puts one model 
   * **Three ways in:** pinch (or click) the part itself, e.g. the faceplate; use the action buttons on the PC or phone; or say *"open the faceplate"*, *"repulsors on"*, *"paint it gold"*, *"stealth mode"*, *"turn on the detector"*, *"switch to x ray"* (on the photon), *"open it"*.
 * **Brightness** (low by default) controls exposure, glow and hologram intensity: the BRIGHTNESS slider in Deep Dive, the Playground tools and phone Settings, or *"set brightness to 40%"*, *"brighter"*, *"dim the lights"*.
 
+## Light & dark theme
+
+* **Switch:** the sun/moon button in the PC header or the phone header, *Settings → Appearance* on the phone, or just say *"JARVIS, switch to light mode"* / *"dark mode"* / *"toggle the theme"*. Each device remembers its choice; a voice command switches every screen.
+* **Dark** is ARC's original look: deep navy, glowing cyan holograms.
+* **Light** is white and black with light-blue touches: black text on white panels, light-blue accents. It covers every page and mode except the VISOR, which stays dark.
+* **3D on the light theme:**
+  * **Playground:** a daylight sky and a light-blue floor grid.
+  * **Solid models:** a near-white studio with true colours.
+  * **Holograms** (AR, x-ray, the carousel): black glass with light-blue rims, full contrast on white.
+  * **Wireframe:** a crisp black line drawing.
+  * **Beams, plasma and particles:** coloured strokes.
+  * **Gargantua:** keeps its black shadow, ringed by a white gap and a light-blue photon ring, so the black never runs into the lines around it.
+
 ## Your own 3D models
 
 * **Import** `.glb` (best), `.gltf` (self-contained), `.obj`, `.stl` or `.fbx`, up to 200 MB:
@@ -197,7 +210,12 @@ ARC/
 * **Which mic listens:** the phone's, whenever the phone is connected. Otherwise the PC's (click or press a key once so the browser allows audio). The command bar says where JARVIS is listening.
 * **Cancelled actions say why:** the timeline shows *Cancelled by voice / touch / gesture*, *No answer — timed out*, or *Replaced by a newer request*, and the server logs it too. Open-hand palm only stops JARVIS talking. It no longer cancels a pending confirmation.
 * Speech-to-text: Groq `whisper-large-v3-turbo`. Common commands are parsed locally (instant, offline-safe); everything else goes to Groq.
-* **JARVIS's voice:** **Piper**, offline neural speech on the PC, streamed to the device that speaks (reliable on iPhone, where Safari's own speech is often silent). Common replies are made once and then play instantly. If Piper can't speak, JARVIS falls back to Groq Orpheus (when its terms are accepted), then the Windows voice, then the browser voice, so he's never silent.
+* **JARVIS's voice:** **Piper**, offline neural speech on the PC, streamed to the device that speaks (reliable on iPhone, where Safari's own speech is often silent). If Piper can't speak, JARVIS falls back to Groq Orpheus (when its terms are accepted), then the Windows voice, then the browser voice, so he's never silent.
+* **Quick to answer:**
+  * **Pace:** he talks at a brisk ~170 words a minute (speed 1.3×, adjustable).
+  * **Start:** he starts speaking after the first sentence while the rest is still being made. That's about a quarter of a second for local commands and half a second after an AI reply arrives.
+  * **Common replies:** they're made once and then play instantly.
+  * **Hands-free:** sends what you said 0.65 s after you stop talking.
 * **Voice library** (SYSTEM → JARVIS VOICE on the PC, Settings on the phone):
   * **Pick:** ▶ plays a preview of any installed voice on the device you're holding. **USE** makes it JARVIS's voice.
   * **Add:** pick a voice on the [Piper samples page](https://rhasspy.github.io/piper-samples/), copy the page link and paste it into **Add voice**. A Hugging Face link to a voice folder or `.onnx` file works too, including your own trained voice in your own repo, and so does a name like `en_GB-alan-medium`. Voices only download from Hugging Face.
@@ -219,6 +237,7 @@ ARC/
 | | **Deep Dive:** deep dive the heart · deep dive into my drone · this one / next | turn on AR mode · x-ray view · explode it · make the background black · show me the aorta · show all labels · exit deep dive |
 | | show me the x-ray machine · open the gamma rays · show me a pulsar · open the large hadron collider · deep dive the fusion reactor | pull up everything on radiation · switch model |
 | | | talk faster / slower · make your voice deeper · turn off the voice effect · change your voice to Alan · reset your voice |
+| | | switch to light mode · dark mode · toggle the theme |
 
 ---
 

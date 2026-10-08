@@ -361,6 +361,7 @@ export class Jarvis {
         else if (action.action === "SET_PHONE_HANDS") this.core.setPhoneHands(action.enabled);
         else if (action.action === "SET_BRIGHTNESS") this.core.setBrightness(action.value);
         else if (action.action === "SET_VOICE") this.setVoice(action);
+        else if (action.action === "SET_THEME") this.out.broadcast({ type: "THEME", theme: action.theme });
         else if (action.action === "RECALIBRATE_GAZE") this.recalibrateGaze();
         else if (action.action === "DEEP_DIVE" || action.action === "DEEP_DIVE_SET" || action.action === "FOCUS_PART" || action.action === "MODEL_ACTION") {
           if (!this.out.isConnected("PC")) {

@@ -280,6 +280,8 @@ export type ServerMessage =
       failed?: boolean;
       fallbackText?: string;
     }
+  /** Switch the theme on every screen ("toggle": each device flips its own). */
+  | { type: "THEME"; theme: "light" | "dark" | "toggle" }
   /** A voice preview, played on the device that asked for it. */
   | { type: "VOICE_SAMPLE"; voice: string; mime: string; data: string; rate: number }
   | { type: "CONFIRM_REQUEST"; pending: PendingAction }

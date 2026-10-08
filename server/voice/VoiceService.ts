@@ -64,7 +64,7 @@ export class VoiceService {
     const id = voiceId && this.library.files(voiceId) ? voiceId : s.id;
     const name = this.library.files(id)?.name ?? "this";
     try {
-      const { mime, data, rate } = await this.piper.speakWith({ id, speed: s.speed, pitch: s.pitch }, `All systems are online, boss. This is the ${name} voice.`);
+      const { mime, data, rate } = await this.piper.speakWith({ id, speed: s.speed, pitch: s.pitch }, `All systems are online, boss. This is the ${name} voice.`, true);
       this.out.sendTo(device, { type: "VOICE_SAMPLE", voice: id, mime, data: data.toString("base64"), rate: rate ?? 1 });
     } catch (err) {
       this.out.sendTo(device, { type: "NOTIFY", level: "warning", title: "VOICE PREVIEW", text: (err as Error).message });

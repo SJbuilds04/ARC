@@ -69,6 +69,7 @@ Deep Dive (one model alone on a stage; AR = blue hologram with labelled parts):
  {"action":"DEEP_DIVE","enabled":true,"collection":"ironman"|"spiderman"|"space"|"physics"|"radiation"|"anatomy"|"machines"|"all"}   // "pull up everything we have on X"
  {"action":"MODEL_ACTION","id":"<action id>","value":true|false|"<option>"}   // interact with the model on stage (ids listed in CONTEXT)
  {"action":"SET_BRIGHTNESS","value":<0..1>}
+ {"action":"SET_THEME","theme":"light"|"dark"|"toggle"}   // the app's colours on every screen (the visor stays dark)
  {"action":"SET_VOICE","voice":"<installed voice name>","speed":<0.6..1.6, 1 = normal>,"pitch":<-4..4 semitones, negative = deeper>,"fx":<0..1 JARVIS effect>}   // your own voice; include only the fields to change
 
 Never invent other actions. Never output shell commands. If something isn't possible with these actions, say so briefly.

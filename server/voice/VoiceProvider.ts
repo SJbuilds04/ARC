@@ -117,11 +117,23 @@ export class GroqVoice implements VoiceProvider {
   }
 }
 
-/** Split long replies into sentence chunks the TTS model accepts. */
-export function chunkForSpeech(text: string, max = 190): string[] {
+/**
+ * Split a reply into chunks for speech. The first chunk is kept short (its first sentence, or the first
+ * clause of a long one) so JARVIS starts talking straight away while the rest is still being made;
+ * the others are packed up to `max` characters.
+ */
+export function chunkForSpeech(text: string, max = 190, firstMax = 90): string[] {
   const clean = text.replace(/[*_`#>]+/g, "").replace(/\s+/g, " ").trim();
   if (!clean) return [];
-  const sentences = clean.match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g) ?? [clean];
+  const sentences = (clean.match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g) ?? [clean]).map((x) => x.trim()).filter(Boolean);
+  if (sentences.length > 1 || sentences[0].length > firstMax) {
+    const first = sentences.shift()!;
+    if (first.length <= firstMax) return [first, ...chunkForSpeech(sentences.join(" "), max, Infinity)];
+    // a long first sentence: break at the last clause boundary that comes early enough
+    const cut = Math.max(first.lastIndexOf(", ", firstMax), first.lastIndexOf("; ", firstMax), first.lastIndexOf(" - ", firstMax));
+    if (cut > 20) return [first.slice(0, cut + 1).trim(), ...chunkForSpeech([first.slice(cut + 1), ...sentences].join(" "), max, Infinity)];
+    sentences.unshift(first);
+  }
   const chunks: string[] = [];
   let current = "";
   for (const s of sentences.map((x) => x.trim())) {

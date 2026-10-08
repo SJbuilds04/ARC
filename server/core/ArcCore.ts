@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { CameraManager } from "../camera/CameraManager";
 import { JsonStore } from "./store";
 import { config } from "../config";
+import { VOICE_DEFAULTS } from "../../shared/voice";
 import type {
   ArcMode,
   ArcState,
@@ -36,10 +37,10 @@ interface PersistedSession {
   deepDivePrefs?: Record<string, DeepDiveSettings>;
   brightness?: number;
   voice?: Pick<VoiceState, "id" | "speed" | "pitch" | "fx">;
+  /** 2 = voice settings moved to the brisker defaults. */
+  voiceRev?: number;
 }
 
-/** JARVIS's voice until it's changed: Bryce, normal speed and pitch, a medium JARVIS effect. */
-const VOICE_DEFAULTS = { speed: 1, pitch: 0, fx: 0.5 };
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 export const DEEP_DIVE_DEFAULTS: DeepDiveSettings = {
@@ -85,6 +86,13 @@ export class ArcCore extends EventEmitter<CoreEvents> {
       notes: [],
       visor: { device: null, previousMode: "COMMAND", gazeInPlayground: false },
     });
+    // Settings saved before the brisker voice: untouched ones move to the new defaults, chosen ones stay.
+    if ((this.session.voiceRev ?? 0) < 2) {
+      const v = this.session.voice;
+      if (v && v.speed === 1 && v.pitch === 0) v.speed = VOICE_DEFAULTS.speed;
+      if (v && v.fx === 0.5) v.fx = VOICE_DEFAULTS.fx;
+      this.session.voiceRev = 2;
+    }
     this.camera = new CameraManager(this.session.activeSource ?? "PC");
     this.camera.phoneHands = this.session.phoneHands ?? false;
 

@@ -117,6 +117,14 @@ test("speech chunking keeps sentences under the TTS limit", () => {
   assert.ok(chunks.length > 1);
   assert.ok(chunks.every((c) => c.length <= 190));
   assert.deepEqual(chunkForSpeech("100, boss."), ["100, boss."]);
+  // JARVIS starts talking after the first sentence, not after a 190-character block
+  const reply = chunkForSpeech("Certainly, boss. The Mark 42 was Tony's first prehensile suit. Each piece flies to him on its own, and it can be recalled from anywhere.");
+  assert.equal(reply[0], "Certainly, boss.");
+  assert.equal(reply.join(" "), "Certainly, boss. The Mark 42 was Tony's first prehensile suit. Each piece flies to him on its own, and it can be recalled from anywhere.");
+  // a long first sentence breaks at a clause
+  const long = chunkForSpeech("The arc reactor powers the suit through a palladium core that was later replaced, because it was slowly poisoning Tony's blood.");
+  assert.ok(long[0].length <= 90 && long[0].endsWith(","), long[0]);
+  assert.ok(long.every((c) => c.length <= 190));
 });
 
 test("visor voice commands", () => {
@@ -233,6 +241,19 @@ test("radiation & light models by voice", () => {
   assert.deepEqual(actionsOf("open the x ray machine", d), [{ action: "SPAWN_OBJECT", object: "xray_machine" }]);
 });
 
+test("light / dark theme by voice", () => {
+  assert.deepEqual(actionsOf("JARVIS, switch to light mode"), [{ action: "SET_THEME", theme: "light" }]);
+  assert.deepEqual(actionsOf("dark mode"), [{ action: "SET_THEME", theme: "dark" }]);
+  assert.deepEqual(actionsOf("turn on dark theme"), [{ action: "SET_THEME", theme: "dark" }]);
+  assert.deepEqual(actionsOf("go dark"), [{ action: "SET_THEME", theme: "dark" }]);
+  assert.deepEqual(actionsOf("change to light"), [{ action: "SET_THEME", theme: "light" }]);
+  assert.deepEqual(actionsOf("turn off dark mode"), [{ action: "SET_THEME", theme: "light" }]);
+  assert.deepEqual(actionsOf("toggle the theme"), [{ action: "SET_THEME", theme: "toggle" }]);
+  // still the radiation & light collection, and still the brightness
+  assert.deepEqual(actionsOf("pull up everything on light"), [{ action: "DEEP_DIVE", enabled: true, collection: "radiation" }]);
+  assert.deepEqual(actionsOf("make it darker", state({ settings: { brightness: 0.5 } } as never)), [{ action: "SET_BRIGHTNESS", value: 0.3 }]);
+});
+
 test("JARVIS's own voice by voice", () => {
   const voices = [
     { id: "en_US-bryce-medium", name: "Bryce", language: "English (United States)", quality: "medium", speakers: 1, sizeMb: 63.5 },
@@ -244,7 +265,7 @@ test("JARVIS's own voice by voice", () => {
   assert.deepEqual(actionsOf("make your voice deeper", s), [{ action: "SET_VOICE", pitch: -1 }]);
   assert.deepEqual(actionsOf("turn off the voice effect", s), [{ action: "SET_VOICE", fx: 0 }]);
   assert.deepEqual(actionsOf("turn on the jarvis effect", s), [{ action: "SET_VOICE", fx: 0.5 }]);
-  assert.deepEqual(actionsOf("reset your voice", s), [{ action: "SET_VOICE", speed: 1, pitch: 0 }]);
+  assert.deepEqual(actionsOf("reset your voice", s), [{ action: "SET_VOICE", speed: 1.3, pitch: 0 }]);
   assert.deepEqual(actionsOf("change your voice to alan", s), [{ action: "SET_VOICE", voice: "en_GB-alan-medium" }]);
   assert.deepEqual(actionsOf("use the bryce voice", s), [{ action: "SET_VOICE", voice: "en_US-bryce-medium" }]);
   assert.deepEqual(actionsOf("change your voice to morgan freeman", s), []); // not installed: JARVIS says so, nothing changes

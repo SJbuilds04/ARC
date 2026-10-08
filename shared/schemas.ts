@@ -60,6 +60,8 @@ export const SystemActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("SET_BRIGHTNESS"), value: z.number().min(0).max(1) }),
   /** Phone hand tracking (off by default — the phone is touch-first). */
   z.object({ action: z.literal("SET_PHONE_HANDS"), enabled: z.boolean() }),
+  /** Light / dark theme on the PC and the phone (the visor stays dark). */
+  z.object({ action: z.literal("SET_THEME"), theme: z.enum(["light", "dark", "toggle"]) }),
   /** JARVIS's voice: which voice, speed (1 = normal), pitch (semitones), JARVIS effect (0..1). Only the fields that change. */
   z.object({
     action: z.literal("SET_VOICE"),

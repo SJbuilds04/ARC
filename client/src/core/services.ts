@@ -12,7 +12,7 @@ import { PlaygroundInteraction } from "../playground/PlaygroundInteraction";
 import { VisorManager } from "../visor/VisorManager";
 import { DeepDive } from "../playground/DeepDive";
 import { loadDeviceToken } from "./device";
-import { isLight, onTheme } from "./theme";
+import { isLight, onTheme, setTheme, toggleTheme } from "./theme";
 
 /**
  * Client services — instantiated exactly once per page load, outside React,
@@ -32,6 +32,8 @@ export const playground: PlaygroundEngine | null = ROLE === "PC" ? new Playgroun
 // the 3D scenes follow the theme too (daylight Playground, blueprint holograms)
 playground?.setTheme(isLight());
 onTheme((t) => playground?.setTheme(t === "light"));
+// "JARVIS, switch to light mode": every screen follows
+arc.on("THEME", ({ theme }) => (theme === "toggle" ? toggleTheme() : setTheme(theme)));
 export const deepDive: DeepDive | null = playground ? new DeepDive(playground) : null;
 let sceneRestored = false;
 

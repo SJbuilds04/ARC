@@ -64,9 +64,9 @@ export class Carousel {
   private movedAt = 0;
   private lastBuildAt = 0;
   private frameNo = 0;
-  private holo = holoMaterial(0x6fd8ff, { opacity: 0.8, fresnel: 1.9, scan: 1, ink: { alpha: 2.8 } });
-  private holoFront = holoMaterial(0xbff2ff, { opacity: 1, fresnel: 1.6, scan: 1, ink: { tone: 0.22, alpha: 3 } });
-  /** Inside every hologram: dark glass on the dark theme, pale paper on the light one (the ink reads on it). */
+  private holo = holoMaterial(0x6fd8ff, { opacity: 0.8, fresnel: 1.9, scan: 1, ink: { alpha: 1.25 } });
+  private holoFront = holoMaterial(0xbff2ff, { opacity: 1, fresnel: 1.6, scan: 1 });
+  /** Inside every hologram: dark glass on the dark theme, black glass on the light one. */
   private core = new THREE.MeshBasicMaterial({ color: 0x041626, transparent: true, opacity: 0.55, depthWrite: true });
   private frontIdx = -1;
   /** Supplied by Deep Dive: builds a model (built-in or imported). */
@@ -87,8 +87,8 @@ export class Carousel {
 
   private applyTheme(): void {
     const light = isLight();
-    this.core.color.set(light ? 0xf2f6fa : 0x041626);
-    this.core.opacity = light ? 0.4 : 0.55;
+    this.core.color.set(light ? 0x050608 : 0x041626);
+    this.core.opacity = light ? 0.9 : 0.55;
   }
 
   get count(): number {
@@ -138,17 +138,17 @@ export class Carousel {
     const light = isLight();
     g.textAlign = "center";
     if (front) {
-      g.fillStyle = light ? "#3d6d94" : "rgba(126,190,226,1)";
+      g.fillStyle = light ? "#1b8fe0" : "rgba(126,190,226,1)";
       g.font = "600 28px Rajdhani, sans-serif";
       g.fillText(item.category.toUpperCase(), 320, 40);
     }
-    g.fillStyle = light ? "#0d2236" : "rgba(240,250,255,1)";
+    g.fillStyle = light ? "#050608" : "rgba(240,250,255,1)";
     g.font = `700 ${front ? 58 : 50}px Rajdhani, sans-serif`;
     let name = item.name.toUpperCase();
     while (g.measureText(name).width > 610 && name.length > 3) name = name.slice(0, -2) + "…";
     g.fillText(name, 320, 100);
     if (front) {
-      g.fillStyle = light ? "#0a6fa8" : "rgba(127,220,255,0.85)";
+      g.fillStyle = light ? "#1b8fe0" : "rgba(127,220,255,0.85)";
       g.font = "600 24px Rajdhani, sans-serif";
       g.fillText("PINCH · CLICK · “THIS ONE” TO OPEN", 320, 150);
     }

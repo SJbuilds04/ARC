@@ -24,8 +24,8 @@ interface Entry {
 const entries = new WeakMap<THREE.Material, Entry>();
 const live = new Set<WeakRef<THREE.Material>>();
 
-/** Darker tone for tinted ink (orbits, edges, selection rings). */
-const TINT_TONE = 0.28;
+/** Tinted lines and rings (orbits, edges) draw in black unless the material asks for a colour (userData.inkColor). */
+const TINT_BLACK = new THREE.Color(0x000000);
 
 function track(m: THREE.Material, e: Entry): void {
   entries.set(m, e);
@@ -41,27 +41,34 @@ function apply(m: THREE.Material, e: Entry, on: boolean): void {
   m.blending = on ? THREE.NormalBlending : e.blending;
   if (e.kind === "tint" && e.color) {
     const c = (m as THREE.MeshBasicMaterial).color;
-    if (on) c.copy(e.color).multiplyScalar(TINT_TONE);
+    if (on) c.set(m.userData.inkColor ?? TINT_BLACK);
     else c.copy(e.color);
   }
 }
 
 /**
- * Give a shader material an ink look for the light theme. `tone` darkens the hue (lower = darker ink),
- * `alpha` scales how opaque the brightest glow becomes.
+ * Give a shader material an ink look for the light theme. `tone` darkens the hue (0 = black ink),
+ * `alpha` scales how opaque the brightest glow becomes. `custom`: the shader draws its own ink look
+ * (it reads `uInk`), so only the uniform and the blending are added.
  */
-export function inkify<T extends THREE.ShaderMaterial>(m: T, tone = 0.45, alpha = 1.25): T {
+export function inkify<T extends THREE.ShaderMaterial>(m: T, tone = 0.5, alpha = 1.6, custom = false): T {
   if (entries.has(m)) return m;
   const end = m.fragmentShader.lastIndexOf("}");
   if (end < 0 || !m.fragmentShader.includes("gl_FragColor")) return m;
   m.uniforms.uInk = ink;
+  if (custom) {
+    m.fragmentShader = "uniform float uInk;\n" + m.fragmentShader;
+    m.needsUpdate = true;
+    track(m, { kind: "shader", blending: m.blending });
+    return m;
+  }
   m.fragmentShader =
     "uniform float uInk;\n" +
     m.fragmentShader.slice(0, end) +
     `  if (uInk > 0.5) {
     vec3 inkGlow = gl_FragColor.rgb * gl_FragColor.a;
     float inkLum = max(max(inkGlow.r, inkGlow.g), inkGlow.b);
-    gl_FragColor = vec4(inkGlow / max(inkLum, 1e-4) * ${tone.toFixed(3)}, clamp(inkLum * ${alpha.toFixed(3)}, 0.0, 0.92));
+    gl_FragColor = vec4(inkGlow / max(inkLum, 1e-4) * ${tone.toFixed(3)}, clamp(inkLum * ${alpha.toFixed(3)}, 0.0, 0.95));
   }
 ` +
     m.fragmentShader.slice(end);

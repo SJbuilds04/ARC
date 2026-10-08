@@ -3,7 +3,8 @@ import { setLocal, useArc, notify } from "../core/store";
 
 const TARGET_RATE = 16_000;
 const PREROLL_MS = 450;
-const SILENCE_END_MS = 850;
+/** Silence that ends what you said (short enough to feel quick, long enough for a pause mid-sentence). */
+const SILENCE_END_MS = 650;
 const MAX_UTTERANCE_MS = 15_000;
 const MIN_SPEECH_MS = 320;
 

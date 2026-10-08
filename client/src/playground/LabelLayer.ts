@@ -153,7 +153,7 @@ export class LabelLayer {
       this.el.style.display = "";
     }
     // light theme: the label colour as dark ink, so it reads on the light page
-    this.el.style.setProperty("--dd-label", isLight() ? `#${labelInk.set(color).multiplyScalar(0.22).getHexString()}` : color);
+    this.el.style.setProperty("--dd-label", isLight() ? `#${labelInk.set(color).multiplyScalar(0.1).getHexString()}` : color);
     const rect = rectOf(canvas);
     const project = (v: THREE.Vector3) => {
       const p = tmp.copy(v).project(camera);

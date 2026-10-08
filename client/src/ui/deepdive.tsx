@@ -75,7 +75,7 @@ export const BG_SWATCHES: { name: string; value: string; show?: string }[] = [
 ];
 /** On the light theme: the default stage is the light studio, plus light backdrops and one dark one. */
 export const BG_SWATCHES_LIGHT: { name: string; value: string; show?: string }[] = [
-  { name: "Studio", value: "#02070f", show: "#e9eef3" },
+  { name: "Studio", value: "#02070f", show: "#f4f8fb" },
   { name: "White", value: "#ffffff" },
   { name: "Mist", value: "#dde5ee" },
   { name: "Sky", value: "#d9e8f7" },

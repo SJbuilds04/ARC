@@ -11,7 +11,8 @@ const TIMEOUT_MS = 15_000;
 const FIRST_TIMEOUT_MS = 40_000;
 /** Workers for voices/speeds no longer in use are stopped after this long idle. */
 const IDLE_MS = 90_000;
-const MAX_WORKERS = 2;
+/** The current voice, a stand-in while a new speed loads, and one being previewed. */
+const MAX_WORKERS = 3;
 const TMP = path.join(os.tmpdir(), "arc-voice");
 
 export interface VoiceFiles {
@@ -36,19 +37,24 @@ export interface PiperInstall {
 }
 
 interface Job {
+  text: string;
   file: string;
+  timeoutMs: number;
   resolve: (data: Buffer) => void;
   reject: (err: Error) => void;
-  timer: NodeJS.Timeout;
+  timer?: NodeJS.Timeout;
 }
 
 /**
  * One long-lived piper process for one voice at one speed: the model loads once, then each line of
  * JSON on stdin becomes a WAV file. Text is always data on stdin, never a command argument.
+ * One line at a time, real speech first: pre-made common replies wait until it's idle.
  */
 class PiperWorker {
   private readonly proc: ChildProcessWithoutNullStreams;
-  private jobs: Job[] = [];
+  private readonly urgent: Job[] = [];
+  private readonly background: Job[] = [];
+  private inFlight: Job | null = null;
   private seq = 0;
   private stopping = false;
   private exited: Promise<void>;
@@ -67,9 +73,11 @@ class PiperWorker {
     lengthScale: number,
     /** Playback rate this worker's speech is timed for. */
     readonly rate: number,
+    onReady: () => void,
   ) {
     fs.mkdirSync(TMP, { recursive: true });
-    this.proc = spawn(exe, ["--model", files.onnx, "--config", files.json, "--json-input", "--quiet", "--length_scale", String(lengthScale)], {
+    // a short pause between sentences (Piper's default 0.2 s makes a quick reply drag)
+    this.proc = spawn(exe, ["--model", files.onnx, "--config", files.json, "--json-input", "--quiet", "--length_scale", String(lengthScale), "--sentence_silence", "0.08"], {
       cwd: path.dirname(exe),
       windowsHide: true,
     });
@@ -82,49 +90,65 @@ class PiperWorker {
     this.proc.on("exit", (code) => this.die(`Piper exited (${code})`));
     this.proc.on("error", (err) => this.die(err.message));
     this.proc.stdin.on("error", () => undefined); // a dead process shouldn't crash ARC on write
-    this.ready = this.run("Ready.", FIRST_TIMEOUT_MS).then(() => {
+    this.ready = this.run("Ready.", FIRST_TIMEOUT_MS, false).then(() => {
       this.isReady = true;
+      onReady();
     });
     this.ready.catch(() => undefined);
   }
 
-  say(text: string): Promise<Buffer> {
+  /** `background`: a pre-made reply — it waits until no real speech is queued. */
+  say(text: string, background = false): Promise<Buffer> {
     this.lastUsed = Date.now();
-    return this.ready.then(() => this.run(text, TIMEOUT_MS));
+    return this.ready.then(() => this.run(text, TIMEOUT_MS, background));
   }
 
-  private run(text: string, timeoutMs: number): Promise<Buffer> {
+  private run(text: string, timeoutMs: number, background: boolean): Promise<Buffer> {
     if (this.dead) return Promise.reject(new Error("Piper isn't running"));
     const file = path.join(TMP, `${process.pid}-${this.key.replace(/[^\w.-]+/g, "_")}-${++this.seq}.wav`);
     return new Promise<Buffer>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        // Piper answers strictly in order: a stuck line means the process is stuck — restart it.
-        this.die("Piper timed out");
-        this.proc.kill();
-      }, timeoutMs);
-      this.jobs.push({ file, resolve, reject, timer });
-      this.proc.stdin.write(JSON.stringify({ text: text.replace(/\s+/g, " "), output_file: file }) + "\n");
+      (background ? this.background : this.urgent).push({ text, file, timeoutMs, resolve, reject });
+      this.pump();
     });
   }
 
+  /** Hand Piper the next line (real speech before pre-made replies), one at a time. */
+  private pump(): void {
+    if (this.inFlight || this.dead) return;
+    const job = this.urgent.shift() ?? this.background.shift();
+    if (!job) return;
+    this.inFlight = job;
+    job.timer = setTimeout(() => {
+      // a stuck line means the process is stuck — restart it
+      this.die("Piper timed out");
+      this.proc.kill();
+    }, job.timeoutMs);
+    this.proc.stdin.write(JSON.stringify({ text: job.text.replace(/\s+/g, " "), output_file: job.file }) + "\n");
+  }
+
   private finishNext(): void {
-    const job = this.jobs.shift();
+    const job = this.inFlight;
+    this.inFlight = null;
     if (!job) return;
     clearTimeout(job.timer);
     fs.promises
       .readFile(job.file)
       .then((data) => job.resolve(data), (err: Error) => job.reject(err))
       .finally(() => fs.promises.rm(job.file, { force: true }).catch(() => undefined));
+    this.pump();
   }
 
   private die(reason: string): void {
     if (!this.dead) this.crashed = !this.stopping;
     this.dead = true;
-    for (const job of this.jobs) {
+    for (const job of [this.inFlight, ...this.urgent, ...this.background]) {
+      if (!job) continue;
       clearTimeout(job.timer);
       job.reject(new Error(reason));
     }
-    this.jobs = [];
+    this.inFlight = null;
+    this.urgent.length = 0;
+    this.background.length = 0;
   }
 
   /** Resolves once the process is gone (its voice files can be deleted then). */
@@ -216,8 +240,11 @@ export class PiperVoice implements VoiceProvider {
     return this.speakWith(this.settings(), text);
   }
 
-  /** Speak with any installed voice (previews), at the given speed and pitch. */
-  async speakWith(s: VoiceSettings, text: string, exact = false): Promise<Synthesis> {
+  /**
+   * Speak with any installed voice at the given speed and pitch. `exact`: never use a stand-in worker
+   * (previews must sound like the new setting). `background`: a pre-made reply, after real speech.
+   */
+  async speakWith(s: VoiceSettings, text: string, exact = false, background = false): Promise<Synthesis> {
     const files = this.files(s.id);
     if (!this.engineReady || !files) throw new Error(this.engineReady ? `The voice ${s.id} isn't installed` : "Piper isn't installed yet");
     const { lengthScale, rate } = voiceTiming(s.speed, s.pitch, files.baseLength);
@@ -227,7 +254,7 @@ export class PiperVoice implements VoiceProvider {
     if (hit) return hit;
     const worker = this.pick(key, files, lengthScale, rate, exact);
     try {
-      const data = await worker.say(text);
+      const data = await worker.say(text, background);
       this.crashes = 0;
       const out: Synthesis = { mime: "audio/wav", data, rate: worker.rate };
       if (worker.key === key && text.length <= 120) this.cache.set(cacheKey, out);
@@ -248,7 +275,7 @@ export class PiperVoice implements VoiceProvider {
     if (!this.engineReady || !files) return;
     const { lengthScale, rate } = voiceTiming(s.speed, s.pitch, files.baseLength);
     this.pick(`${s.id}|${lengthScale}`, files, lengthScale, rate, true);
-    for (const p of phrases) void this.speakWith(s, p, true).catch(() => undefined);
+    for (const p of phrases) void this.speakWith(s, p, true, true).catch(() => undefined);
   }
 
   /** Stop everything using a voice (before its files are deleted). */
@@ -273,7 +300,7 @@ export class PiperVoice implements VoiceProvider {
   private pick(key: string, files: VoiceFiles, lengthScale: number, rate: number, exact: boolean): PiperWorker {
     let w = this.workers.get(key);
     if (!w || w.dead) {
-      w = new PiperWorker(key, this.lib.exe, files, lengthScale, rate);
+      w = new PiperWorker(key, this.lib.exe, files, lengthScale, rate, () => this.trim(key));
       this.workers.set(key, w);
       this.trim(key);
     }
@@ -295,11 +322,21 @@ export class PiperVoice implements VoiceProvider {
     return files ? `${s.id}|${voiceTiming(s.speed, s.pitch, files.baseLength).lengthScale}` : "";
   }
 
-  /** At most two live workers (each holds a model in memory): the current voice and the newest. */
+  /**
+   * At most three live workers (each holds a model in memory): the current voice, the newest, and —
+   * while the current one is still loading — a ready stand-in for the same voice so replies never wait.
+   */
   private trim(newest: string): void {
     const current = this.currentKey();
     for (const [k, w] of this.workers) if (w.dead) this.workers.delete(k);
-    const spare = [...this.workers.values()].filter((w) => w.key !== newest && w.key !== current).sort((a, b) => a.lastUsed - b.lastUsed);
+    const keep = new Set([newest, current]);
+    const cur = this.workers.get(current);
+    if (cur && !cur.isReady) {
+      const voice = current.slice(0, current.lastIndexOf("|"));
+      const standIn = [...this.workers.values()].filter((w) => w.isReady && w.key.startsWith(`${voice}|`)).sort((a, b) => b.lastUsed - a.lastUsed)[0];
+      if (standIn) keep.add(standIn.key);
+    }
+    const spare = [...this.workers.values()].filter((w) => !keep.has(w.key)).sort((a, b) => a.lastUsed - b.lastUsed);
     while (this.workers.size > MAX_WORKERS && spare.length) {
       const w = spare.shift()!;
       void w.stop();

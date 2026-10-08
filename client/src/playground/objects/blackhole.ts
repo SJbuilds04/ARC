@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { BuiltObject, ModelAction } from "./types";
 import { at, part } from "./parts";
 import { holoGain } from "../holo";
+import { ink } from "../ink";
 
 /**
  * Gargantua — a ray-traced black hole in the spirit of Interstellar.
@@ -43,6 +44,7 @@ const FRAG = /* glsl */ `
   uniform float uAR;        // 0 = cinematic, 1 = AR hologram
   uniform vec3 uHolo;       // hologram colour
   uniform float uHG;        // hologram brightness (brightness control)
+  uniform float uInk;       // light theme: the hologram drawn as ink on white
 
   const float RS = 0.12;
   const float R_IN = 0.36;
@@ -115,6 +117,12 @@ const FRAG = /* glsl */ `
     float lines = max(max(ring, spoke), isco);
     float a = clamp(fill + lines * 0.7, 0.0, 0.9) * edge * uDisk;
     vec3 e = uHolo * (fill * 0.9 + lines * 1.2 + isco * 0.7) * uHG;
+    if (uInk > 0.5) {
+      // light theme: the disk in blue ink (rings, spokes, the innermost orbit) over a light-blue wash.
+      // Never black, so it can't run into the black shadow.
+      e = mix(vec3(0.62, 0.82, 0.97), vec3(0.04, 0.4, 0.78), clamp(lines * 1.4 + isco, 0.0, 1.0));
+      a = clamp(fill * 0.8 + lines * 0.95, 0.0, 0.95) * edge * uDisk;
+    }
     return vec4(e, a);
   }
   // AR: a grid on a screen behind the hole (always facing you) — the lensing bends it round
@@ -194,7 +202,12 @@ const FRAG = /* glsl */ `
       if (uAR > 0.001) {
         float fade = 1.0 - smoothstep(RBND * 0.3, RBND * 0.88, b0);
         float gl = skyGrid(p, normalize(v)) * 0.13 * fade * uAR;
-        col += (1.0 - alpha) * uHolo * uHG * gl;
+        vec3 gc = uHolo * uHG;
+        if (uInk > 0.5) {
+          gl = min(gl * 3.6, 0.7);
+          gc = vec3(0.24, 0.6, 0.93);
+        }
+        col += (1.0 - alpha) * gc * gl;
         alpha += (1.0 - alpha) * gl;
       }
     }
@@ -206,13 +219,26 @@ const FRAG = /* glsl */ `
       col += (1.0 - alpha) * (1.0 - rim) * env(d);
       alpha = 1.0 - (1.0 - alpha) * rim; // hand over to the real background at the rim
     }
-    if (uAR > 0.001) {
+    if (uAR > 0.001 && uInk > 0.5) {
+      // Light theme: the black shadow is kept apart from every line by a white gap, and the photon
+      // ring is a crisp light-blue circle just outside it (premultiplied "over").
+      float gapA = smoothstep(BC - 0.002, BC + 0.002, b0) * (1.0 - smoothstep(BC + 0.012, BC + 0.016, b0)) * uAR;
+      col = vec3(1.0) * gapA + col * (1.0 - gapA);
+      alpha = gapA + alpha * (1.0 - gapA);
+      float ringA = exp(-pow((b0 - (BC + 0.021)) / 0.0055, 2.0)) * uAR;
+      col = vec3(0.1, 0.56, 0.95) * ringA + col * (1.0 - ringA);
+      alpha = ringA + alpha * (1.0 - ringA);
+    } else if (uAR > 0.001) {
       // AR: the photon ring traced as a glowing outline of the shadow
       float pr = exp(-pow((b0 - BC) / 0.0045, 2.0)) + 0.3 * exp(-pow((b0 - BC) / 0.025, 2.0)) * step(BC, b0);
       col += uHolo * uHG * pr * 1.3 * uAR;
       alpha = max(alpha, clamp(pr * uAR, 0.0, 1.0));
     }
     gl_FragColor = vec4(col, alpha);
+    // tone mapping + output colour space when drawn straight to the screen (the light theme);
+    // inside the composer (dark theme) both are no-ops, so that look is unchanged
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
   }`;
 
 export function buildBlackHole(): BuiltObject {
@@ -228,6 +254,7 @@ export function buildBlackHole(): BuiltObject {
     uAR: { value: 0 },
     uHolo: { value: new THREE.Color(0x6fd8ff) },
     uHG: holoGain,
+    uInk: ink,
   };
   const mat = new THREE.ShaderMaterial({
     vertexShader: VERT,
@@ -360,16 +387,18 @@ function gravityWell(color: THREE.Color): { back: THREE.LineSegments; front: THR
   const toCam = { value: new THREE.Vector3(0, 0, 1) };
   const make = (front: boolean) => {
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uColor: { value: color }, uOpacity: opacity, uGain: holoGain, uCenter: center, uToCam: toCam, uFront: { value: front ? 1 : 0 } },
+      uniforms: { uColor: { value: color }, uOpacity: opacity, uGain: holoGain, uCenter: center, uToCam: toCam, uFront: { value: front ? 1 : 0 }, uInk: ink },
       vertexShader: /* glsl */ `varying vec3 vWorld; varying float vDepth;
         void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; vDepth = position.y; gl_Position = projectionMatrix * viewMatrix * w; }`,
-      fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uOpacity; uniform float uGain; uniform vec3 uCenter; uniform vec3 uToCam; uniform float uFront;
+      fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uOpacity; uniform float uGain; uniform vec3 uCenter; uniform vec3 uToCam; uniform float uFront; uniform float uInk;
         varying vec3 vWorld; varying float vDepth;
         void main(){
           float side = dot(vWorld - uCenter, uToCam);
           if ((uFront > 0.5 && side < 0.0) || (uFront < 0.5 && side >= 0.0)) discard;
           float deep = clamp(-vDepth / 0.6, 0.0, 1.0);
           gl_FragColor = vec4(uColor * (0.35 + 0.6 * uGain) * (0.7 + 0.5 * deep), uOpacity * (0.45 + 0.55 * deep));
+          // light theme: blue ink, deepening toward the horizon
+          if (uInk > 0.5) gl_FragColor = vec4(mix(vec3(0.3, 0.64, 0.94), vec3(0.04, 0.36, 0.72), deep), uOpacity * (0.7 + 0.45 * deep));
         }`,
       transparent: true,
       depthWrite: false,

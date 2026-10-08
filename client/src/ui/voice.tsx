@@ -5,6 +5,7 @@ import { arc, voiceOut } from "../core/services";
 import { Panel } from "./primitives";
 import { Icon } from "./Icons";
 import { LiveSlider } from "./deepdive";
+import { VOICE_DEFAULTS } from "@shared/voice";
 
 const SAMPLES_PAGE = "https://rhasspy.github.io/piper-samples/";
 
@@ -128,9 +129,9 @@ export function VoicePanel({ className = "" }: { className?: string }) {
         <LiveSlider label="SPEED" value={v.speed} min={0.7} max={1.4} step={0.05} onCommit={(x) => setVoice({ speed: x })} format={(x) => `${x.toFixed(2)}×`} />
         <LiveSlider label="PITCH" value={v.pitch} min={-4} max={4} step={0.5} onCommit={(x) => setVoice({ pitch: x })} format={(x) => (x === 0 ? "0" : `${x > 0 ? "+" : "−"}${Math.abs(x)}`)} />
         <LiveSlider label="EFFECT" value={v.fx} min={0} max={1} step={0.05} onCommit={(x) => setVoice({ fx: x })} format={(x) => (x === 0 ? "OFF" : `${Math.round(x * 100)}%`)} />
-        {(v.speed !== 1 || v.pitch !== 0) && (
-          <button className="voice-reset" onClick={() => setVoice({ speed: 1, pitch: 0 })}>
-            <Icon.Reset width={13} height={13} /> NORMAL SPEED & PITCH
+        {(v.speed !== VOICE_DEFAULTS.speed || v.pitch !== VOICE_DEFAULTS.pitch) && (
+          <button className="voice-reset" onClick={() => setVoice({ speed: VOICE_DEFAULTS.speed, pitch: VOICE_DEFAULTS.pitch })}>
+            <Icon.Reset width={13} height={13} /> DEFAULT SPEED & PITCH
           </button>
         )}
       </div>

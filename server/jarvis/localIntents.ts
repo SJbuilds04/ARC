@@ -2,6 +2,7 @@ import { catalogEntry, collectionOf, resolveCatalogId, resolveCollection, resolv
 import type { ArcAction, ArcState } from "../../shared/types";
 import { resolveColor } from "./colors";
 import { findVoice } from "../voice/piperVoices";
+import { VOICE_DEFAULTS } from "../../shared/voice";
 
 /**
  * Deterministic fast path for frequent commands. High-confidence patterns only —
@@ -172,6 +173,16 @@ export function parseLocalIntent(raw: string, state: ArcState): LocalIntent | nu
     return reply(`Switching to the ${to === "PHONE" ? "phone" : "PC"} camera, boss.`, { action: "SWITCH_CAMERA", to });
   }
 
+  // ── Light / dark theme ("light" is also a collection, so this comes first) ──
+  const themeTo = t.match(/^(?:switch|change|go|turn|set|put)(?: it| arc| everything| the app| the theme| the screen| the interface)?(?: to| on| into| over to)? (?:the )?(light|dark)(?: mode| theme| colou?rs?)?$/) ??
+    t.match(/^(?:enable|activate|use|turn on|give me) (?:the )?(light|dark) (?:mode|theme)$/) ??
+    t.match(/^(light|dark) (?:mode|theme)(?: on| please)?$/);
+  if (themeTo) return reply(`${themeTo[1] === "light" ? "Light" : "Dark"} mode, boss.`, { action: "SET_THEME", theme: themeTo[1] as "light" | "dark" });
+  const themeOff = t.match(/^(?:turn off|disable|exit|leave) (?:the )?(light|dark) (?:mode|theme)$/);
+  if (themeOff) return reply(`${themeOff[1] === "light" ? "Dark" : "Light"} mode, boss.`, { action: "SET_THEME", theme: themeOff[1] === "light" ? "dark" : "light" });
+  if (/^(?:toggle|switch|flip|change) (?:the )?(?:theme|colou?r (?:mode|scheme)|appearance|light and dark|dark and light)$/.test(t))
+    return reply("Switching the theme, boss.", { action: "SET_THEME", theme: "toggle" });
+
   // ── Collections: "pull up everything we have on Iron Man" → carousel of that category ──
   const coll =
     t.match(/^(?:pull up|bring up|show(?: me)?|display|open|load|give me|what do we have on|what have we got on|list)(?: me)? (?:everything|all(?: the)?(?: stuff| models| files| data)?|the(?: whole)?(?: collection| models)?)?(?: we(?: have|'ve got)| you(?: have|'ve got))?(?: on| about| of| for| from)?(?: the)? (.+?)(?: models| collection| stuff| files| category| suits)?$/) ??
@@ -204,7 +215,7 @@ export function parseLocalIntent(raw: string, state: ArcState): LocalIntent | nu
     if (/^(make your voice|talk|speak) (a (bit|little) )?higher$|^raise your (voice|pitch)$/.test(t)) return reply("Higher, boss.", { action: "SET_VOICE", pitch: step(voice.pitch, 1, -4, 4) });
     if (/^(turn on|enable|add|switch on) (the |your )?(voice|jarvis|audio) effects?$/.test(t)) return reply("Effect on, boss.", { action: "SET_VOICE", fx: voice.fx > 0.05 ? voice.fx : 0.5 });
     if (/^(turn off|disable|remove|switch off) (the |your )?(voice|jarvis|audio) effects?$/.test(t)) return reply("Effect off, boss.", { action: "SET_VOICE", fx: 0 });
-    if (/^(reset your voice|talk normally|normal voice)$/.test(t)) return reply("Back to normal, boss.", { action: "SET_VOICE", speed: 1, pitch: 0 });
+    if (/^(reset your voice|talk normally|normal voice)$/.test(t)) return reply("Back to normal, boss.", { action: "SET_VOICE", speed: VOICE_DEFAULTS.speed, pitch: VOICE_DEFAULTS.pitch });
     if (/^(what|which) voice (are you using|is this)$|^what('s| is) your voice( called)?$/.test(t)) {
       const name = voice.voices.find((v) => v.id === voice.id)?.name;
       return reply(name ? `I'm speaking with the ${name} voice, boss.` : "My usual voice, boss.");

@@ -129,7 +129,7 @@ export class JarvisFx {
       this.comp.connect(conv).connect(send).connect(this.out);
       return send;
     };
-    this.studio = room(1.1, 0.55, 0.016);
+    this.studio = room(0.75, 0.55, 0.014);
     this.helmet = room(0.32, 0.9, 0.004);
     this.set(0, false, true);
   }

@@ -7,10 +7,10 @@ import { ObjectManager, type ArcObject } from "./ObjectManager";
 import { glowSprite, holoGain, holoTime } from "./holo";
 import { blackHoleEnv, blackHoleGain, blackHoleQuality } from "./objects/blackhole";
 import { studioEnvironment, studioRig } from "./studio";
-import { ink, inkScan, setInk } from "./ink";
+import { ink, inkify, inkScan, setInk } from "./ink";
 
 /** Light theme: the Playground under a soft daylight sky instead of deep space. */
-const LIGHT_SKY = 0xe9eff5;
+const LIGHT_SKY = 0xf3f8fc;
 const DARK_SKY = 0x01060e;
 
 /** three.js's ACES filmic curve (as in its shader), applied to a linear colour. */
@@ -32,9 +32,9 @@ function aces(x: number, y: number, z: number, exposure: number): [number, numbe
 function backdrop(color: THREE.ColorRepresentation, exposure: number): THREE.Color {
   const t = new THREE.Color(color);
   if (t.getHSL({ h: 0, s: 0, l: 0 }).l < 0.25) return t; // dark backdrops barely change
-  const target = [Math.min(t.r, 0.97), Math.min(t.g, 0.97), Math.min(t.b, 0.97)];
+  const target = [Math.min(t.r, 0.985), Math.min(t.g, 0.985), Math.min(t.b, 0.985)];
   const x = [...target];
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 24; i++) {
     const out = aces(x[0], x[1], x[2], exposure);
     for (let c = 0; c < 3; c++) x[c] *= target[c] / Math.max(out[c], 1e-4);
   }
@@ -69,6 +69,12 @@ export class PlaygroundEngine {
   private floor: THREE.Group;
   private milkyWay: THREE.Texture | null = null;
   private light = false;
+  /**
+   * Light theme on a light backdrop: render straight to the screen. White stays white, see-through layers
+   * blend exactly, lit models are tone mapped per material (PBR Neutral) and the canvas's own MSAA keeps
+   * thin lines crisp. Everything else (the dark theme, deep space) keeps the composer with ACES and bloom.
+   */
+  private direct = false;
   private hemi!: THREE.HemisphereLight;
   private ambient!: THREE.AmbientLight;
   private rim!: THREE.PointLight;
@@ -133,7 +139,9 @@ export class PlaygroundEngine {
     this.scene.add(this.floor);
     this.particles = this.buildParticles();
     this.scene.add(this.particles);
-    // light theme: the floor grid draws as ink, the glow halo and dust hide
+    // light theme: the floor grid draws as light-blue ink, the glow halo and dust hide
+    const grid = this.floor.children.find((c) => ((c as THREE.Mesh).material as THREE.ShaderMaterial)?.isShaderMaterial) as THREE.Mesh | undefined;
+    if (grid) inkify(grid.material as THREE.ShaderMaterial, 0.85, 1.8);
     inkScan(this.floor);
     inkScan(this.particles);
     this.objects = new ObjectManager(this.scene, FLOOR_Y, this.camera);
@@ -230,7 +238,8 @@ export class PlaygroundEngine {
     }
     this.orbit.target.lerp(this.orbitTarget.target, k);
 
-    this.composer.render(dt);
+    if (this.direct) this.renderer.render(this.scene, this.camera);
+    else this.composer.render(dt);
     this.frames++;
     const now = performance.now();
     if (now - this.fpsStart > 1000) {
@@ -336,9 +345,15 @@ export class PlaygroundEngine {
     this.floor.visible = this.particles.visible = !studio;
     this.playLights.visible = !studio;
     this.studioLights.group.visible = studio;
+    this.applyRenderMode();
     this.applyFog();
     this.applyBackdrop();
     this.setBrightness(this.brightness);
+  }
+
+  private applyRenderMode(): void {
+    this.direct = this.light && !(this.studio && this.space);
+    this.renderer.toneMapping = this.direct ? THREE.NeutralToneMapping : THREE.ACESFilmicToneMapping;
   }
 
   /**
@@ -349,6 +364,7 @@ export class PlaygroundEngine {
     if (light === this.light && ink.value === (light ? 1 : 0)) return;
     this.light = light;
     setInk(light);
+    this.applyRenderMode();
     this.hemi.color.set(light ? 0xdbe9f7 : 0x3d6fa8);
     this.hemi.groundColor.set(light ? 0x9fb2c4 : 0x02060c);
     this.hemi.intensity = light ? 1.25 : 0.75;
@@ -367,13 +383,13 @@ export class PlaygroundEngine {
 
   private applyBackdrop(): void {
     if (this.studio && !this.space) {
-      this.scene.background = backdrop(this.studioBg, this.renderer.toneMappingExposure);
+      this.scene.background = this.direct ? new THREE.Color(this.studioBg) : backdrop(this.studioBg, this.renderer.toneMappingExposure);
       this.scene.backgroundIntensity = 1;
       blackHoleEnv.intensity = 0;
       return;
     }
     if (this.light && !this.studio) {
-      this.scene.background = backdrop(LIGHT_SKY, this.renderer.toneMappingExposure);
+      this.scene.background = new THREE.Color(LIGHT_SKY);
       this.scene.backgroundIntensity = 1;
       blackHoleEnv.intensity = 0;
       return;
@@ -391,10 +407,10 @@ export class PlaygroundEngine {
   setBrightness(b: number): void {
     const v = Math.max(0, Math.min(1, b));
     this.brightness = v;
-    this.renderer.toneMappingExposure = 0.55 + v * 0.7;
+    this.renderer.toneMappingExposure = this.direct ? 1.0 + v * 0.35 : 0.55 + v * 0.7;
     // bloom only for things that really glow (eyes, reactors, the disk), not every highlight;
     // none on the light theme (glow draws as ink there, and the bright backdrop would haze everything)
-    this.bloom.enabled = !this.light;
+    this.bloom.enabled = !this.direct;
     this.bloom.strength = 0.08 + v * 0.35;
     this.bloom.radius = 0.35;
     this.bloom.threshold = 0.95;

@@ -28,22 +28,28 @@ const HOLO_FRAG = /* glsl */ `
   uniform float uGain;
   uniform float uPow;
   uniform float uScan;
+  uniform float uInkBoost;
   varying vec3 vNormalV;
   varying vec3 vViewV;
   varying vec3 vWorld;
   void main() {
-    // light theme: a broader fresnel, so the blueprint shades like a sketch instead of a thin rim
-    float f = pow(1.0 - abs(dot(normalize(vNormalV), normalize(vViewV))), uPow * (1.0 - 0.45 * uInk));
+    float ndv = abs(dot(normalize(vNormalV), normalize(vViewV)));
+    float f = pow(1.0 - ndv, uPow);
     float scan = 0.82 + 0.18 * sin(vWorld.y * 70.0 - uTime * 3.0);
     float band = smoothstep(0.0, 0.04, abs(fract(vWorld.y * 0.6 - uTime * 0.15) - 0.5)) * 0.25 + 0.75;
-    // (uInk is declared by inkify: the light theme draws clean blueprint lines, no scanlines)
-    float alpha = (0.08 + f * 0.95) * uOpacity * mix(1.0, scan * band, uScan * (1.0 - uInk)) * uGain;
+    float alpha = (0.08 + f * 0.95) * uOpacity * mix(1.0, scan * band, uScan) * uGain;
     gl_FragColor = vec4(uColor * (0.55 + f * 1.6) * uGain, alpha);
+    // light theme (uInk, declared by inkify): black glass with a light-blue rim where the surface turns
+    // away from you — full contrast on white, and still the hologram's shape. No grey anywhere.
+    if (uInk > 0.5) {
+      float rim = smoothstep(0.45, 0.85, 1.0 - ndv);
+      gl_FragColor = vec4(mix(vec3(0.008, 0.01, 0.014), vec3(0.32, 0.7, 1.0), rim), clamp(mix(0.88, 1.0, rim) * uOpacity * uInkBoost, 0.0, 1.0));
+    }
   }`;
 
 export function holoMaterial(
   color: THREE.ColorRepresentation = HOLO_CYAN,
-  opts: { opacity?: number; fresnel?: number; scan?: number; ink?: { tone?: number; alpha?: number } } = {},
+  opts: { opacity?: number; fresnel?: number; scan?: number; ink?: { alpha?: number } } = {},
 ) {
   // light theme: a blueprint — dark ink at the silhouette, clear inside
   return inkify(
@@ -55,6 +61,7 @@ export function holoMaterial(
       uGain: holoGain,
       uPow: { value: opts.fresnel ?? 2.2 },
       uScan: { value: opts.scan ?? 0.6 },
+      uInkBoost: { value: opts.ink?.alpha ?? 1 },
     },
     vertexShader: HOLO_VERT,
     fragmentShader: HOLO_FRAG,
@@ -63,8 +70,9 @@ export function holoMaterial(
     blending: THREE.AdditiveBlending,
     side: THREE.FrontSide,
     }),
-    opts.ink?.tone ?? 0.26,
-    opts.ink?.alpha ?? 2.2,
+    0,
+    1,
+    true,
   );
 }
 
@@ -90,8 +98,8 @@ export function lineMaterial(color: THREE.ColorRepresentation = HOLO_CYAN, opaci
       transparent: true,
       depthWrite: false,
     }),
-    0.25,
-    2.0,
+    0, // black lines
+    2.2,
   );
 }
 
