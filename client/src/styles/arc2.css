@@ -1171,6 +1171,27 @@ body.visor-open .ph {
 .dd-action-choice {
   grid-column: 1 / -1;
 }
+/* more than four options (e.g. the photon's seven bands): rows of four, a shorter last row stretches */
+.dd-seg.is-many {
+  display: flex;
+  flex-wrap: wrap;
+}
+.dd-seg.is-many button {
+  flex: 1 0 25%;
+  min-width: 0;
+  padding: 0 2px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dd-seg.is-many button:nth-child(4n) {
+  border-right: 0;
+}
+.dd-seg.is-many button:nth-child(-n + 4) {
+  border-bottom: 1px solid rgba(120, 205, 255, 0.14);
+}
 .dd-action-choice > span {
   display: block;
   font-size: 11px;

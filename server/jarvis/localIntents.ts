@@ -199,9 +199,13 @@ export function parseLocalIntent(raw: string, state: ArcState): LocalIntent | nu
     const ON = /^(open|raise|lift|deploy|extend|activate|enable|start|power up|power on|turn on|switch on|fire|launch|show|engage|arm)\b/;
     const OFF = /^(close|lower|shut|retract|deactivate|disable|stop|power down|power off|turn off|switch off|hide|disengage|disarm)\b/;
     const named = (a: (typeof acts)[number]) => [a.label.toLowerCase(), ...(a.words ?? [])].some((w) => w && t.includes(w));
-    const choice = acts.find((a) => a.kind === "choice" && (a.options ?? []).some((o) => t.includes(o.toLowerCase())) && (named(a) || /^(paint|make it|switch to|go|change to|set)/.test(t) || / (mode|scheme|finish|colou?r|paint)$/.test(t)));
+    // "x ray", "x-ray" and "xray" all name the X-ray option
+    const flat = (s: string) => plain(s).replace(/\bx ?ray/g, "x ray");
+    const said = flat(t);
+    const hasOpt = (o: string) => said.includes(flat(o));
+    const choice = acts.find((a) => a.kind === "choice" && (a.options ?? []).some(hasOpt) && (named(a) || /^(paint|make it|switch to|go|change to|set)/.test(t) || / (mode|scheme|finish|colou?r|paint)$/.test(t)));
     if (choice) {
-      const opt = (choice.options ?? []).find((o) => t.includes(o.toLowerCase()))!;
+      const opt = (choice.options ?? []).find(hasOpt)!;
       return reply(`${opt}, boss.`, { action: "MODEL_ACTION", id: choice.id, value: opt });
     }
     const on = ON.test(t);

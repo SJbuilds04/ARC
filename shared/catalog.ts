@@ -8,7 +8,7 @@ export interface CatalogEntry {
   id: string;
   name: string;
   aliases: string[];
-  category: "Planet" | "Star" | "System" | "Science" | "Anatomy" | "Machine" | "Primitive" | "Iron Man" | "Spider-Man" | "Physics" | "Futuristic";
+  category: "Planet" | "Star" | "System" | "Science" | "Anatomy" | "Machine" | "Primitive" | "Iron Man" | "Spider-Man" | "Physics" | "Futuristic" | "Radiation";
   /** Real reference facts shown in the object panel. */
   facts: { label: string; value: string }[];
   /** Capabilities the object supports (drives which properties JARVIS may toggle). */
@@ -319,6 +319,84 @@ export const OBJECT_CATALOG: CatalogEntry[] = [
       { label: "Stages", value: "5 temperature plates" },
     ],
   },
+  // ── Radiation & light ──
+  {
+    id: "xray_machine",
+    name: "X-Ray Machine",
+    aliases: ["x ray machine", "x-ray machine", "xray machine", "x ray", "x-ray", "xray", "x rays", "x-rays", "x ray tube", "x-ray tube", "radiography", "x ray animation", "xray animation", "x-ray animation"],
+    category: "Radiation",
+    facts: [
+      { label: "Discovered", value: "Wilhelm Röntgen, 1895" },
+      { label: "Tube voltage", value: "60–150 kV" },
+      { label: "Wavelength", value: "0.01–10 nm" },
+    ],
+  },
+  {
+    id: "gamma_rays",
+    name: "Gamma Radiation",
+    aliases: ["gamma radiation", "gamma rays", "gamma ray", "gamma", "radioactive decay", "radioactivity", "nuclear decay", "nuclear radiation", "alpha beta gamma", "radiation shielding"],
+    category: "Radiation",
+    facts: [
+      { label: "Wavelength", value: "< 0.01 nm" },
+      { label: "Stopped by", value: "Thick lead or concrete" },
+      { label: "Discovered", value: "Paul Villard, 1900" },
+    ],
+  },
+  {
+    id: "photon",
+    name: "Photon & EM Wave",
+    aliases: ["photon", "photons", "em wave", "electromagnetic wave", "electromagnetic waves", "electromagnetic spectrum", "electromagnetic radiation", "light wave", "light waves", "spectrum"],
+    category: "Radiation",
+    facts: [
+      { label: "Speed", value: "299,792 km/s" },
+      { label: "Rest mass", value: "0" },
+      { label: "Energy", value: "E = h·f" },
+    ],
+  },
+  {
+    id: "laser",
+    name: "Laser",
+    aliases: ["laser", "lasers", "ruby laser", "laser beam", "stimulated emission"],
+    category: "Radiation",
+    facts: [
+      { label: "First built", value: "Theodore Maiman, 1960" },
+      { label: "Stands for", value: "Light Amplification by Stimulated Emission of Radiation" },
+      { label: "Ruby laser", value: "694 nm, deep red" },
+    ],
+  },
+  {
+    id: "pulsar",
+    name: "Pulsar",
+    aliases: ["pulsar", "pulsars", "neutron star", "spinning neutron star", "magnetar", "pulsating star"],
+    category: "Star",
+    facts: [
+      { label: "Diameter", value: "~20 km" },
+      { label: "Spin", value: "Up to 716 times a second" },
+      { label: "Density", value: "~1 billion tonnes per teaspoon" },
+    ],
+  },
+  {
+    id: "collider",
+    name: "Particle Collider",
+    aliases: ["particle collider", "collider", "large hadron collider", "hadron collider", "lhc", "particle accelerator", "atlas detector", "cern", "higgs boson", "particle collision", "particle physics"],
+    category: "Physics",
+    facts: [
+      { label: "Collision energy", value: "13.6 TeV (LHC)" },
+      { label: "Ring", value: "27 km" },
+      { label: "Collisions", value: "Up to a billion a second" },
+    ],
+  },
+  {
+    id: "tokamak",
+    name: "Fusion Reactor",
+    aliases: ["fusion reactor", "tokamak", "nuclear fusion", "fusion", "iter", "fusion power", "plasma reactor", "star in a jar"],
+    category: "Futuristic",
+    facts: [
+      { label: "Plasma", value: "~150 million °C" },
+      { label: "Fuel", value: "Deuterium + tritium" },
+      { label: "Example", value: "ITER, France" },
+    ],
+  },
   { id: "cube", name: "Cube", aliases: ["cube", "box"], category: "Primitive", facts: [{ label: "Faces", value: "6" }] },
   { id: "sphere", name: "Sphere", aliases: ["sphere", "ball", "orb"], category: "Primitive", facts: [] },
   {
@@ -351,7 +429,8 @@ export const COLLECTIONS: Collection[] = [
   { id: "ironman", name: "Iron Man", aliases: ["iron man", "ironman", "tony stark", "stark", "stark industries", "the avengers", "avengers", "marvel"], categories: ["Iron Man"] },
   { id: "spiderman", name: "Spider-Man", aliases: ["spider man", "spiderman", "spider-man", "peter parker", "spidey"], categories: ["Spider-Man"] },
   { id: "space", name: "Space", aliases: ["space", "planets", "astronomy", "the universe", "universe", "cosmos", "stars"], categories: ["Planet", "Star", "System"] },
-  { id: "physics", name: "Physics & Quantum", aliases: ["physics", "quantum", "quantum physics", "science", "experiments", "science experiments", "quantum experiments", "futuristic", "futuristic stuff"], categories: ["Physics", "Futuristic", "Science"] },
+  { id: "physics", name: "Physics & Quantum", aliases: ["physics", "quantum", "quantum physics", "science", "experiments", "science experiments", "quantum experiments", "futuristic", "futuristic stuff"], categories: ["Physics", "Futuristic", "Science", "Radiation"] },
+  { id: "radiation", name: "Radiation & Light", aliases: ["radiation", "light", "x rays", "x-rays", "gamma rays", "photons", "nuclear", "radioactivity", "rays", "radiation and light"], categories: ["Radiation"] },
   { id: "anatomy", name: "Anatomy", aliases: ["anatomy", "human body", "biology", "medical", "organs"], categories: ["Anatomy"] },
   { id: "machines", name: "Machines", aliases: ["machines", "cars", "engineering", "vehicles", "engines"], categories: ["Machine"] },
   { id: "shapes", name: "Shapes", aliases: ["shapes", "primitives", "geometry"], categories: ["Primitive"] },

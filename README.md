@@ -80,9 +80,17 @@ Playground shows every model with its normal look. **Deep Dive** puts one model 
 
 ## Collections & interactive models
 
-* **Categories:** All · Iron Man · Spider-Man · Space · Physics & Quantum · Anatomy · Machines · Your models. The tabs sit above the carousel (PC) and on the phone's Remote tab. By voice: *"JARVIS, pull up everything we have on Iron Man"*, *"show me all the spider man suits"*, *"pull up everything on quantum physics"*, *"show me everything"*.
+* **Categories:** All · Iron Man · Spider-Man · Space · Physics & Quantum · Radiation & Light · Anatomy · Machines · Your models. The tabs sit above the carousel (PC) and on the phone's Remote tab. By voice: *"JARVIS, pull up everything we have on Iron Man"*, *"show me all the spider man suits"*, *"pull up everything on quantum physics"*, *"pull up everything on radiation"*, *"show me everything"*.
 * **The carousel is 3D:** a fixed arc of live models in AR hologram style on holographic pedestals, the selected one at the front with its name. However many models a collection has, the arc and the camera stay the same; only the models near the front are built, so spinning stays smooth. Open the front model by pinching or clicking it, saying *"this one"*, or pressing Enter; the slim arrows at the screen edges (or ← →) step through it.
-* **Iron Man:** Mark III, Mark 42, Mark 50 Nanotech, Mark 85, Hulkbuster, plus Arc Reactor Mk I and Mk II. Spider-Man: Classic Suit and Iron Spider. Space: Gargantua, the Interstellar black hole. Physics & Quantum: Young's double slit, Newton's cradle, Newton's prism, a 4D tesseract, a quantum computer. *(These are ARC's own procedural models in the style of the films, not official assets.)*
+* **Iron Man:** Mark III, Mark 42, Mark 50 Nanotech, Mark 85, Hulkbuster, plus Arc Reactor Mk I and Mk II. Spider-Man: Classic Suit and Iron Spider. Space: Gargantua, the Interstellar black hole. Physics & Quantum: Young's double slit, Newton's cradle, Newton's prism, a 4D tesseract, a quantum computer, a particle collider, a fusion reactor. Radiation & Light: X-ray machine, gamma radiation, photon & EM wave, laser. Space also has a pulsar. *(These are ARC's own procedural models in the style of the films, not official assets.)*
+* **Animated science models** play on their own and react to their controls:
+  * **X-ray machine:** electrons boil off the glowing filament and hit the spinning tungsten anode. X-ray photons fan out through a hand on the table, and the monitor shows its radiograph (soft tissue and bone at 60 kV, just bone at 120 kV).
+  * **Gamma radiation:** an unstable nucleus fires alpha, beta and gamma radiation at paper, aluminium and lead. Paper stops alpha, aluminium stops beta, and only thick lead soaks up gamma.
+  * **Photon & EM wave:** the electric and magnetic fields oscillate at right angles while the wave travels. Pick a band from radio to gamma and the wavelength glides there. A marker shows it on the spectrum, or switch to a single photon packet.
+  * **Laser:** the flash lamp pumps the ruby rod and photons bounce between the mirrors until a coherent beam leaves the output coupler (red, green or blue).
+  * **Pulsar:** a spinning neutron star sweeps its radiation beams round like a lighthouse, flashing each time a beam points at you, inside its dipole magnetic field.
+  * **Particle collider:** proton bunches collide in a cut-open detector. Particle tracks curl in the magnet, light up the silicon layers and end in glowing calorimeter towers. Muons fly out to the outer chambers.
+  * **Fusion reactor (tokamak):** a cutaway shows a violet plasma ring flowing inside the vacuum vessel, wrapped by D-shaped field coils, the central solenoid and twisted magnetic field lines.
 * **How the suits are made:** every suit stands on one anatomical body made of smooth analytic surfaces; each armour plate is an outline cut on those surfaces with real thickness, a bevelled edge and a dark panel gap, so the armour catches light like the real thing. Candy-red clear-coat paint with metal flake, gold-titanium, a machined arc reactor, glowing eyes, repulsors and boot thrusters. Spider-Man's web radiates from the chest emblem and the centre of the mask.
 * **Gargantua** is ray-traced per pixel through curved spacetime: the far side of the disk is bent over and under the black shadow, the photon ring hugs its edge, and the stars behind it are lensed. Like the film, the disk has no Doppler asymmetry. *Star backdrop* switches the studio to deep space.
 * **Gargantua in AR mode** (also wireframe / x-ray): the disk becomes a hologram of orbit rings and spokes that is still lensed over the top, the photon ring glows as the shadow's outline, a grid behind it bends into an Einstein ring, and a gravity well shows spacetime curving down into the hole.
@@ -97,7 +105,8 @@ Playground shows every model with its normal look. **Deep Dive** puts one model 
   * **Double slit:** switch on the which-way detector and the interference collapses into two bands; wavelength red / green / violet.
   * **Cradle:** swing 1–3 balls.
   * **Quantum computer:** cryostat, qubits.
-  * **Three ways in:** pinch (or click) the part itself, e.g. the faceplate; use the action buttons on the PC or phone; or say *"open the faceplate"*, *"repulsors on"*, *"paint it gold"*, *"stealth mode"*, *"turn on the detector"*, *"open it"*.
+  * **X-ray machine:** power, tube voltage (60 / 120 kV), rotating anode. **Gamma radiation:** decay (gamma / beta / alpha / all three), shields. **Photon:** band (radio … gamma), photon packet, field vectors. **Laser:** pump, colour. **Pulsar:** spin (slow / fast), field lines, beams. **Collider:** collide, rate (slow / fast / paused), detector. **Fusion reactor:** plasma, heating (low / high), field lines.
+  * **Three ways in:** pinch (or click) the part itself, e.g. the faceplate; use the action buttons on the PC or phone; or say *"open the faceplate"*, *"repulsors on"*, *"paint it gold"*, *"stealth mode"*, *"turn on the detector"*, *"switch to x ray"* (on the photon), *"open it"*.
 * **Brightness** (low by default) controls exposure, glow and hologram intensity: the BRIGHTNESS slider in Deep Dive, the Playground tools and phone Settings, or *"set brightness to 40%"*, *"brighter"*, *"dim the lights"*.
 
 ## Your own 3D models
@@ -200,6 +209,7 @@ ARC/
 | delete file *old draft* (hold to confirm) | delete it · clear the scene · reset view | stop / cancel |
 | system info · battery · volume up · next track · type *hello* | "put a car next to the earth and spin both" (Groq) | "explain … in detail" (long answer) |
 | | **Deep Dive:** deep dive the heart · deep dive into my drone · this one / next | turn on AR mode · x-ray view · explode it · make the background black · show me the aorta · show all labels · exit deep dive |
+| | show me the x-ray machine · open the gamma rays · show me a pulsar · open the large hadron collider · deep dive the fusion reactor | pull up everything on radiation · switch model |
 
 ---
 

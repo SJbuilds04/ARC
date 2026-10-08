@@ -197,7 +197,7 @@ test("collections, brightness and model actions by voice", () => {
   assert.deepEqual(actionsOf("deep dive the iron man suit", s), [{ action: "DEEP_DIVE", enabled: true, model: "mark3" }]);
   assert.deepEqual(actionsOf("set brightness to 40%", s), [{ action: "SET_BRIGHTNESS", value: 0.4 }]);
   // the category tabs send collection ids, which must resolve to themselves
-  for (const id of ["ironman", "spiderman", "space", "physics", "anatomy", "machines", "yours"]) assert.equal(resolveCollection(id), id);
+  for (const id of ["ironman", "spiderman", "space", "physics", "radiation", "anatomy", "machines", "yours"]) assert.equal(resolveCollection(id), id);
   assert.equal(resolveCollection("my models"), "yours");
   const acts = [
     { id: "faceplate", label: "Faceplate", kind: "toggle" as const, words: ["faceplate", "helmet", "mask"], value: false },
@@ -211,4 +211,24 @@ test("collections, brightness and model actions by voice", () => {
   assert.deepEqual(actionsOf("open it", d), [{ action: "MODEL_ACTION", id: "faceplate", value: true }]);
   assert.deepEqual(actionsOf("paint it gold", d), [{ action: "MODEL_ACTION", id: "paint", value: "Gold" }]);
   assert.deepEqual(actionsOf("stealth mode", d), [{ action: "MODEL_ACTION", id: "paint", value: "Stealth" }]);
+});
+
+test("radiation & light models by voice", () => {
+  assert.deepEqual(actionsOf("show me the x ray machine"), [{ action: "SPAWN_OBJECT", object: "xray_machine" }]);
+  assert.deepEqual(actionsOf("JARVIS, open the x-ray animation"), [{ action: "SPAWN_OBJECT", object: "xray_machine" }]);
+  assert.deepEqual(actionsOf("deep dive the gamma rays"), [{ action: "DEEP_DIVE", enabled: true, model: "gamma_rays" }]);
+  assert.deepEqual(actionsOf("show me a photon"), [{ action: "SPAWN_OBJECT", object: "photon" }]);
+  assert.deepEqual(actionsOf("spawn a laser"), [{ action: "SPAWN_OBJECT", object: "laser" }]);
+  assert.deepEqual(actionsOf("show me a neutron star"), [{ action: "SPAWN_OBJECT", object: "pulsar" }]);
+  assert.deepEqual(actionsOf("open the large hadron collider"), [{ action: "SPAWN_OBJECT", object: "collider" }]);
+  assert.deepEqual(actionsOf("deep dive the fusion reactor"), [{ action: "DEEP_DIVE", enabled: true, model: "tokamak" }]);
+  assert.deepEqual(actionsOf("pull up everything on radiation"), [{ action: "DEEP_DIVE", enabled: true, collection: "radiation" }]);
+  assert.equal(resolveCollection("radiation"), "radiation");
+  // on the photon's stage, the band switches by voice ("x ray" without the hyphen too)
+  const bands = { id: "band", label: "Band", kind: "choice" as const, options: ["Radio", "Visible", "Ultraviolet", "X-ray", "Gamma"], words: ["band", "spectrum"], value: "Visible" };
+  const d = state({ spaces: { PC: "PLAYGROUND", PHONE: "COMMAND" }, deepDive: { active: true, modelId: "photon", modelName: "Photon & EM Wave", settings: {} as never, parts: [], focusPart: null, collection: null, actions: [bands] } });
+  assert.deepEqual(actionsOf("switch to x ray", d), [{ action: "MODEL_ACTION", id: "band", value: "X-ray" }]);
+  assert.deepEqual(actionsOf("change the band to ultraviolet", d), [{ action: "MODEL_ACTION", id: "band", value: "Ultraviolet" }]);
+  // …but naming the machine still opens the machine (Jarvis turns the spawn into a dive while diving)
+  assert.deepEqual(actionsOf("open the x ray machine", d), [{ action: "SPAWN_OBJECT", object: "xray_machine" }]);
 });

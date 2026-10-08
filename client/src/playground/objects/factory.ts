@@ -9,6 +9,8 @@ import { buildArcReactor, buildArcReactor2 } from "./reactor";
 import { buildBlackHole } from "./blackhole";
 import { buildDoubleSlit, buildNewtonCradle, buildPrism } from "./experiments";
 import { buildQuantumComputer, buildTesseract } from "./futuristic";
+import { buildGammaRadiation, buildLaser, buildPhoton, buildXRayMachine } from "./radiation";
+import { buildCollider, buildPulsar, buildTokamak } from "./frontier";
 
 const primitive = (geometry: THREE.BufferGeometry, radius: number, edgeThreshold = 22): Builder => () => ({
   content: holoMesh(geometry, undefined, edgeThreshold),
@@ -53,6 +55,13 @@ export const BUILDERS: Record<string, Builder> = {
   prism: buildPrism,
   tesseract: buildTesseract,
   quantum_computer: buildQuantumComputer,
+  xray_machine: buildXRayMachine,
+  gamma_rays: buildGammaRadiation,
+  photon: buildPhoton,
+  laser: buildLaser,
+  pulsar: buildPulsar,
+  collider: buildCollider,
+  tokamak: buildTokamak,
   cube: primitive(new THREE.BoxGeometry(1.3, 1.3, 1.3), 1.15),
   sphere: primitive(new THREE.IcosahedronGeometry(0.95, 4), 0.95, 60),
   torus: primitive(new THREE.TorusKnotGeometry(0.62, 0.2, 220, 28), 0.95, 60),

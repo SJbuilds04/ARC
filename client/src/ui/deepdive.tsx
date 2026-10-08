@@ -38,7 +38,7 @@ export function ModelActions() {
         a.kind === "choice" ? (
           <div key={a.id} className="dd-action-choice">
             <span>{a.label.toUpperCase()}</span>
-            <div className="dd-seg" role="group" aria-label={a.label}>
+            <div className={`dd-seg ${(a.options?.length ?? 0) > 4 ? "is-many" : ""}`} role="group" aria-label={a.label}>
               {(a.options ?? []).map((o) => (
                 <button key={o} className={a.value === o ? "is-on" : ""} onClick={() => ddAction({ action: "MODEL_ACTION", id: a.id, value: o })}>
                   {o.toUpperCase()}
