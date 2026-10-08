@@ -119,6 +119,17 @@ export const Icon = {
       <path d="M6 6l12 12M18 6 6 18" />
     </svg>
   ),
+  Sun: (p: P) => (
+    <svg {...base(p)}>
+      <circle cx="12" cy="12" r="4.2" />
+      <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" />
+    </svg>
+  ),
+  Moon: (p: P) => (
+    <svg {...base(p)}>
+      <path d="M19.5 14.6A8 8 0 0 1 9.4 4.5a8 8 0 1 0 10.1 10.1z" />
+    </svg>
+  ),
   Play: (p: P) => (
     <svg {...base(p)}>
       <path d="M8 5.5v13l10.5-6.5z" />

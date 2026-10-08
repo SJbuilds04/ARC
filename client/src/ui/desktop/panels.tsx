@@ -27,7 +27,8 @@ export function PairingCard() {
     <Panel title="PAIR DEVICE" className="pair-card">
       {pairing ? (
         <>
-          <div className="pair-card__qr" dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
+          {/* the squares take the theme's colour (light on dark / dark on white) */}
+          <div className="pair-card__qr" dangerouslySetInnerHTML={{ __html: pairing.qrSvg.replace(/stroke="#bfefff(ff)?"/gi, 'stroke="currentColor"') }} />
           <div className="pair-card__hint">Scan with your phone camera. Same Wi‑Fi network.</div>
           <div className="pair-card__url">{pairing.url.split("?")[0]}</div>
         </>

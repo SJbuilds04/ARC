@@ -12,6 +12,7 @@ import { PlaygroundInteraction } from "../playground/PlaygroundInteraction";
 import { VisorManager } from "../visor/VisorManager";
 import { DeepDive } from "../playground/DeepDive";
 import { loadDeviceToken } from "./device";
+import { isLight, onTheme } from "./theme";
 
 /**
  * Client services — instantiated exactly once per page load, outside React,
@@ -28,6 +29,9 @@ export const visor = new VisorManager(ROLE, arc, vision, gestures, pointer);
 
 /** The 3D playground lives on the PC only. */
 export const playground: PlaygroundEngine | null = ROLE === "PC" ? new PlaygroundEngine() : null;
+// the 3D scenes follow the theme too (daylight Playground, blueprint holograms)
+playground?.setTheme(isLight());
+onTheme((t) => playground?.setTheme(t === "light"));
 export const deepDive: DeepDive | null = playground ? new DeepDive(playground) : null;
 let sceneRestored = false;
 

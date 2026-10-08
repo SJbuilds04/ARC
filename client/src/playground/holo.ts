@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { inkify, inkScan } from "./ink";
 
 /** Shared clock for every hologram shader (one uniform, updated once per frame). */
 export const holoTime = { value: 0 };
@@ -31,15 +32,22 @@ const HOLO_FRAG = /* glsl */ `
   varying vec3 vViewV;
   varying vec3 vWorld;
   void main() {
-    float f = pow(1.0 - abs(dot(normalize(vNormalV), normalize(vViewV))), uPow);
+    // light theme: a broader fresnel, so the blueprint shades like a sketch instead of a thin rim
+    float f = pow(1.0 - abs(dot(normalize(vNormalV), normalize(vViewV))), uPow * (1.0 - 0.45 * uInk));
     float scan = 0.82 + 0.18 * sin(vWorld.y * 70.0 - uTime * 3.0);
     float band = smoothstep(0.0, 0.04, abs(fract(vWorld.y * 0.6 - uTime * 0.15) - 0.5)) * 0.25 + 0.75;
-    float alpha = (0.08 + f * 0.95) * uOpacity * mix(1.0, scan * band, uScan) * uGain;
+    // (uInk is declared by inkify: the light theme draws clean blueprint lines, no scanlines)
+    float alpha = (0.08 + f * 0.95) * uOpacity * mix(1.0, scan * band, uScan * (1.0 - uInk)) * uGain;
     gl_FragColor = vec4(uColor * (0.55 + f * 1.6) * uGain, alpha);
   }`;
 
-export function holoMaterial(color: THREE.ColorRepresentation = HOLO_CYAN, opts: { opacity?: number; fresnel?: number; scan?: number } = {}) {
-  return new THREE.ShaderMaterial({
+export function holoMaterial(
+  color: THREE.ColorRepresentation = HOLO_CYAN,
+  opts: { opacity?: number; fresnel?: number; scan?: number; ink?: { tone?: number; alpha?: number } } = {},
+) {
+  // light theme: a blueprint — dark ink at the silhouette, clear inside
+  return inkify(
+    new THREE.ShaderMaterial({
     uniforms: {
       uTime: holoTime,
       uColor: { value: new THREE.Color(color) },
@@ -54,7 +62,10 @@ export function holoMaterial(color: THREE.ColorRepresentation = HOLO_CYAN, opts:
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     side: THREE.FrontSide,
-  });
+    }),
+    opts.ink?.tone ?? 0.26,
+    opts.ink?.alpha ?? 2.2,
+  );
 }
 
 /** Blueprint-style edge overlay. */
@@ -64,19 +75,24 @@ export function edgeLines(geometry: THREE.BufferGeometry, color: THREE.ColorRepr
     new THREE.LineBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false }),
   );
   lines.userData.noPick = true;
+  inkScan(lines);
   return lines;
 }
 
 /** Clean line material (normal blending) whose brightness follows the brightness control. */
 export function lineMaterial(color: THREE.ColorRepresentation = HOLO_CYAN, opacity = 0.7) {
-  return new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity }, uGain: holoGain },
-    vertexShader: /* glsl */ `void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uOpacity; uniform float uGain;
+  return inkify(
+    new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity }, uGain: holoGain },
+      vertexShader: /* glsl */ `void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uOpacity; uniform float uGain;
       void main() { gl_FragColor = vec4(uColor * (0.3 + 0.6 * uGain), uOpacity * (0.5 + 0.5 * uGain)); }`,
-    transparent: true,
-    depthWrite: false,
-  });
+      transparent: true,
+      depthWrite: false,
+    }),
+    0.25,
+    2.0,
+  );
 }
 
 /** Dark translucent core used inside holographic shells so objects read as solid. */

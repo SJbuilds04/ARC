@@ -6,23 +6,26 @@ ARC is a persistent spatial-computing system: your **phone** is a portable visio
 
 ---
 
-## Quick start
+## Install
 
-```powershell
-npm install
-npm run setup        # downloads hand-tracking model, textures, country outlines, and JARVIS's voice (Piper + Bryce)
-copy .env.example .env
-# edit .env → GROQ_API_KEY=...
+**New to this? Follow [INSTALL.md](INSTALL.md)**: a step-by-step guide for a brand-new PC, including what gets downloaded, why the browser and firewall ask questions, and how to uninstall.
+
+You need **[Node.js LTS](https://nodejs.org)** (22.12 or newer) and a free **[Groq](https://console.groq.com)** API key. There's no installer or batch file: open a terminal in the ARC folder and run:
+
+```
+npm ci              # ARC's libraries, exact versions from package-lock.json
+npm run setup       # tracking models, textures, and JARVIS's voice (Piper + Bryce)
+npm run configure   # paste your Groq key (checked, then saved to .env on this PC)
 npm run build
 npm start
 ```
 
-1. On the PC, open **https://localhost:7777** → the browser warns about the local certificate → *Advanced → Proceed*.
-2. Open **DEVICES** (left nav) and scan the QR code with your phone (same Wi‑Fi). Accept the certificate warning once.
-3. On the phone, tap **ENGAGE ARC** (enables voice output + microphone).
-4. Say or type: **"JARVIS, open VS Code"** → point at **YES** → pinch.
+Then open **https://localhost:7777**. Run **`npm run doctor`** any time to check the install; it tells you how to fix anything missing.
 
-Windows will ask to allow Node.js through the firewall the first time — allow it on **private** networks so the phone can connect.
+1. The browser warns about ARC's local certificate (made on your PC so the phone can use its camera and mic): *Advanced → Continue*. Once.
+2. Windows asks to let Node.js on the network: allow **Private networks** only (that's how the phone connects).
+3. Open **DEVICES** (left nav) and scan the QR code with your phone (same Wi‑Fi). Accept the certificate warning once, then tap **ENGAGE ARC**.
+4. Say or type: **"JARVIS, open VS Code"** → point at **YES** → pinch.
 
 ### JARVIS's voice
 
@@ -278,6 +281,8 @@ Mouse/touch work everywhere too (drag to move, right/shift-drag to rotate, wheel
 | | |
 |---|---|
 | `npm run setup` | Fetch runtime assets into `client/public`, and install Piper + the default voice (safe to re-run) |
+| `npm run configure` | Connect JARVIS to Groq: paste your key, it's checked and saved to `.env` |
+| `npm run doctor` | Check the install (Node.js, downloads, voice, Groq key, port, phone address) and say how to fix problems |
 | `npm run build` | Build the client |
 | `npm start` | Run ARC |
 | `npm run dev` | Rebuild client + restart server on change |

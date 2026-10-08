@@ -7,6 +7,39 @@ import { ObjectManager, type ArcObject } from "./ObjectManager";
 import { glowSprite, holoGain, holoTime } from "./holo";
 import { blackHoleEnv, blackHoleGain, blackHoleQuality } from "./objects/blackhole";
 import { studioEnvironment, studioRig } from "./studio";
+import { ink, inkScan, setInk } from "./ink";
+
+/** Light theme: the Playground under a soft daylight sky instead of deep space. */
+const LIGHT_SKY = 0xe9eff5;
+const DARK_SKY = 0x01060e;
+
+/** three.js's ACES filmic curve (as in its shader), applied to a linear colour. */
+function aces(x: number, y: number, z: number, exposure: number): [number, number, number] {
+  const k = exposure / 0.6;
+  const r = (0.59719 * x + 0.35458 * y + 0.04823 * z) * k;
+  const g = (0.076 * x + 0.90834 * y + 0.01566 * z) * k;
+  const b = (0.0284 * x + 0.13383 * y + 0.83777 * z) * k;
+  const fit = (v: number) => (v * (v + 0.0245786) - 0.000090537) / (v * (0.983729 * v + 0.432951) + 0.238081);
+  const R = fit(r), G = fit(g), B = fit(b);
+  const c = (v: number) => Math.max(0, Math.min(1, v));
+  return [c(1.60475 * R - 0.53108 * G - 0.07367 * B), c(-0.10208 * R + 1.10813 * G - 0.00605 * B), c(-0.00327 * R - 0.07276 * G + 1.07602 * B)];
+}
+
+/**
+ * The colour to put behind the scene so that, after tone mapping, it shows as exactly `color`.
+ * (Tone mapping is for lit models; without this a light backdrop comes out a muddy grey.)
+ */
+function backdrop(color: THREE.ColorRepresentation, exposure: number): THREE.Color {
+  const t = new THREE.Color(color);
+  if (t.getHSL({ h: 0, s: 0, l: 0 }).l < 0.25) return t; // dark backdrops barely change
+  const target = [Math.min(t.r, 0.97), Math.min(t.g, 0.97), Math.min(t.b, 0.97)];
+  const x = [...target];
+  for (let i = 0; i < 16; i++) {
+    const out = aces(x[0], x[1], x[2], exposure);
+    for (let c = 0; c < 3; c++) x[c] *= target[c] / Math.max(out[c], 1e-4);
+  }
+  return new THREE.Color(x[0], x[1], x[2]);
+}
 
 const FLOOR_Y = -1.15;
 const HOME = { azimuth: 0, elevation: 0.17, distance: 6.6, target: new THREE.Vector3(0, 0.15, -0.4) };
@@ -35,6 +68,11 @@ export class PlaygroundEngine {
   private particles: THREE.Points;
   private floor: THREE.Group;
   private milkyWay: THREE.Texture | null = null;
+  private light = false;
+  private hemi!: THREE.HemisphereLight;
+  private ambient!: THREE.AmbientLight;
+  private rim!: THREE.PointLight;
+  private fill!: THREE.PointLight;
   private zoomLimits = { min: 3, max: 14 };
   private elevationLimits = { min: -0.05, max: 1.2 };
   /** Deep Dive (or anything else) takes over the frame: objects are hidden and not updated. */
@@ -87,12 +125,17 @@ export class PlaygroundEngine {
     });
 
     this.setupLights();
+    // integrated graphics: quarter-size shadow maps (still crisp at stage scale, a lot less work per frame)
+    if (this.weakGpu) this.studioLights.key.shadow.mapSize.set(1024, 1024);
     this.studioLights.group.visible = false;
     this.scene.add(this.studioLights.group);
     this.floor = this.buildFloor();
     this.scene.add(this.floor);
     this.particles = this.buildParticles();
     this.scene.add(this.particles);
+    // light theme: the floor grid draws as ink, the glow halo and dust hide
+    inkScan(this.floor);
+    inkScan(this.particles);
     this.objects = new ObjectManager(this.scene, FLOOR_Y, this.camera);
 
     this.composer = new EffectComposer(this.renderer);
@@ -127,7 +170,14 @@ export class PlaygroundEngine {
     }
   }
 
+  private rectCache: DOMRect | null = null;
+  /** The canvas's place on screen, cached: it only changes on resize (no layout read per pointer move). */
+  get rect(): DOMRect {
+    return (this.rectCache ??= this.canvas.getBoundingClientRect());
+  }
+
   private resize(): void {
+    this.rectCache = null;
     if (!this.host) return;
     const w = Math.max(1, this.host.clientWidth);
     const h = Math.max(1, this.host.clientHeight);
@@ -167,14 +217,17 @@ export class PlaygroundEngine {
     this.orbit.distance += (this.orbitTarget.distance - this.orbit.distance) * k;
     this.applyCamera();
 
-    const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < pos.count; i++) {
-      let y = pos.getY(i) + dt * 0.08;
-      if (y > 4) y = FLOOR_Y;
-      pos.setY(i, y);
+    // drifting dust: only when it's showing (not in Deep Dive's studio, not on the light theme)
+    if (this.particles.visible && !this.light) {
+      const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        let y = pos.getY(i) + dt * 0.08;
+        if (y > 4) y = FLOOR_Y;
+        pos.setY(i, y);
+      }
+      pos.needsUpdate = true;
+      this.particles.rotation.y += dt * 0.01;
     }
-    pos.needsUpdate = true;
-    this.particles.rotation.y += dt * 0.01;
     this.orbit.target.lerp(this.orbitTarget.target, k);
 
     this.composer.render(dt);
@@ -283,20 +336,50 @@ export class PlaygroundEngine {
     this.floor.visible = this.particles.visible = !studio;
     this.playLights.visible = !studio;
     this.studioLights.group.visible = studio;
-    this.scene.fog = studio ? null : new THREE.FogExp2(0x01060e, 0.045);
+    this.applyFog();
     this.applyBackdrop();
     this.setBrightness(this.brightness);
   }
 
+  /**
+   * Light or dark theme. Light: a daylight sky and brighter fill, the grid drawn as ink, holograms and
+   * effects as blueprints (see ink.ts). Deep Dive picks its own studio colour for the theme.
+   */
+  setTheme(light: boolean): void {
+    if (light === this.light && ink.value === (light ? 1 : 0)) return;
+    this.light = light;
+    setInk(light);
+    this.hemi.color.set(light ? 0xdbe9f7 : 0x3d6fa8);
+    this.hemi.groundColor.set(light ? 0x9fb2c4 : 0x02060c);
+    this.hemi.intensity = light ? 1.25 : 0.75;
+    this.ambient.color.set(light ? 0xffffff : 0x1a3150);
+    this.ambient.intensity = light ? 0.35 : 0.45;
+    this.rim.intensity = light ? 6 : 14;
+    this.fill.intensity = light ? 2 : 6;
+    this.applyFog();
+    this.applyBackdrop();
+    this.setBrightness(this.brightness);
+  }
+
+  private applyFog(): void {
+    this.scene.fog = this.studio ? null : this.light ? new THREE.FogExp2(LIGHT_SKY, 0.03) : new THREE.FogExp2(DARK_SKY, 0.045);
+  }
+
   private applyBackdrop(): void {
     if (this.studio && !this.space) {
-      this.scene.background = new THREE.Color(this.studioBg);
+      this.scene.background = backdrop(this.studioBg, this.renderer.toneMappingExposure);
+      this.scene.backgroundIntensity = 1;
+      blackHoleEnv.intensity = 0;
+      return;
+    }
+    if (this.light && !this.studio) {
+      this.scene.background = backdrop(LIGHT_SKY, this.renderer.toneMappingExposure);
       this.scene.backgroundIntensity = 1;
       blackHoleEnv.intensity = 0;
       return;
     }
     const level = this.studio ? 0.42 : 0.16;
-    this.scene.background = this.milkyWay ?? new THREE.Color(0x01060e);
+    this.scene.background = this.milkyWay ?? new THREE.Color(DARK_SKY);
     this.scene.backgroundIntensity = this.milkyWay ? level : 1;
     blackHoleEnv.intensity = this.milkyWay ? level : 0;
   }
@@ -309,13 +392,16 @@ export class PlaygroundEngine {
     const v = Math.max(0, Math.min(1, b));
     this.brightness = v;
     this.renderer.toneMappingExposure = 0.55 + v * 0.7;
-    // bloom only for things that really glow (eyes, reactors, the disk), not every highlight
+    // bloom only for things that really glow (eyes, reactors, the disk), not every highlight;
+    // none on the light theme (glow draws as ink there, and the bright backdrop would haze everything)
+    this.bloom.enabled = !this.light;
     this.bloom.strength = 0.08 + v * 0.35;
     this.bloom.radius = 0.35;
     this.bloom.threshold = 0.95;
     this.scene.environmentIntensity = this.studio ? 1.2 + v * 2.0 : 0.9 + v * 1.2;
     holoGain.value = 0.42 + v * 0.75;
     blackHoleGain.value = 0.6 + v * 0.7;
+    this.applyBackdrop(); // light backdrops are compensated for the exposure
   }
 
   /** Render the current scene from `camera` into a PNG (for model thumbnails). */
@@ -324,7 +410,18 @@ export class PlaygroundEngine {
     rt.texture.colorSpace = THREE.SRGBColorSpace;
     const prevTarget = this.renderer.getRenderTarget();
     this.renderer.setRenderTarget(rt);
+    // thumbnails are shared by both themes: always capture the dark studio look
+    const light = this.light;
+    const background = scene.background;
+    if (light) {
+      setInk(false);
+      if (background instanceof THREE.Color) scene.background = new THREE.Color("#02070f");
+    }
     this.renderer.render(scene, camera);
+    if (light) {
+      setInk(true);
+      scene.background = background;
+    }
     const pixels = new Uint8Array(size * size * 4);
     this.renderer.readRenderTargetPixels(rt, 0, 0, size, size, pixels);
     this.renderer.setRenderTarget(prevTarget);
@@ -342,7 +439,7 @@ export class PlaygroundEngine {
 
   private ndc(nx: number, ny: number): THREE.Vector2 {
     // nx/ny are relative to the viewport; convert via the canvas rect.
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = this.rect;
     const x = ((nx * window.innerWidth - rect.left) / rect.width) * 2 - 1;
     const y = -(((ny * window.innerHeight - rect.top) / rect.height) * 2 - 1);
     return new THREE.Vector2(x, y);
@@ -397,7 +494,7 @@ export class PlaygroundEngine {
 
   /** Screen-space circle (viewport px) around an object — for the VISOR targeting frame. */
   screenCircle(obj: ArcObject): { x: number; y: number; r: number } {
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = this.rect;
     const toScreen = (v: THREE.Vector3) => {
       const p = v.clone().project(this.camera);
       return { x: rect.left + ((p.x + 1) / 2) * rect.width, y: rect.top + ((1 - p.y) / 2) * rect.height };
@@ -412,23 +509,24 @@ export class PlaygroundEngine {
   private setupLights(): void {
     const g = this.playLights;
     this.scene.add(g);
-    g.add(new THREE.HemisphereLight(0x3d6fa8, 0x02060c, 0.75));
-    g.add(new THREE.AmbientLight(0x1a3150, 0.45));
+    this.hemi = new THREE.HemisphereLight(0x3d6fa8, 0x02060c, 0.75);
+    this.ambient = new THREE.AmbientLight(0x1a3150, 0.45);
+    g.add(this.hemi, this.ambient);
     const key = new THREE.DirectionalLight(0xdfefff, 2.2);
     key.position.set(-4, 7, 5);
     key.castShadow = true;
-    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.mapSize.set(this.weakGpu ? 1024 : 2048, this.weakGpu ? 1024 : 2048);
     key.shadow.camera.left = key.shadow.camera.bottom = -7;
     key.shadow.camera.right = key.shadow.camera.top = 7;
     key.shadow.bias = -0.0004;
     key.shadow.radius = 4;
     g.add(key);
-    const rim = new THREE.PointLight(0x37b6ff, 14, 14, 1.8);
-    rim.position.set(4, 2, -3);
-    g.add(rim);
-    const fill = new THREE.PointLight(0x2050ff, 6, 12, 2);
-    fill.position.set(-5, 0.5, -2);
-    g.add(fill);
+    this.rim = new THREE.PointLight(0x37b6ff, 14, 14, 1.8);
+    this.rim.position.set(4, 2, -3);
+    g.add(this.rim);
+    this.fill = new THREE.PointLight(0x2050ff, 6, 12, 2);
+    this.fill.position.set(-5, 0.5, -2);
+    g.add(this.fill);
   }
 
   private buildFloor(): THREE.Group {

@@ -4,6 +4,8 @@
   "description": "ARC — Augmented Reality Command Center. Spatial interface for JARVIS.",
   "scripts": {
     "setup": "node scripts/setup-assets.mjs && tsx server/voice/install.ts",
+    "configure": "node scripts/configure.mjs",
+    "doctor": "node scripts/doctor.mjs",
     "build": "vite build",
     "start": "tsx server/index.ts",
     "dev": "node scripts/dev.mjs",
@@ -39,6 +41,6 @@
   },
   "private": true,
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12"
   }
 }

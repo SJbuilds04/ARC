@@ -26,7 +26,13 @@ export class PlaygroundInteraction {
   private scaling: { obj: ArcObject; start: number } | null = null;
   private mouse: { mode: "drag" | "rotate" | "orbit"; x: number; y: number; obj: ArcObject | null; offset: THREE.Vector3; moved: number } | null = null;
   /** Deep Dive input: pinch / drag orbits, fist turns the model (or spins the carousel), two hands zoom. */
-  private dd: { orbit: { x: number; y: number } | null; zoom: number | null; mouse: { x: number; y: number; rotate: boolean; moved: number } | null } = { orbit: null, zoom: null, mouse: null };
+  private dd: {
+    orbit: { x: number; y: number } | null;
+    zoom: number | null;
+    mouse: { x: number; y: number; rotate: boolean; moved: number } | null;
+    /** A pinch in the carousel: a quick tap opens the model, a drag scrolls. */
+    pinch: { x: number; y: number; x0: number; y0: number; t: number; rolling: boolean } | null;
+  } = { orbit: null, zoom: null, mouse: null, pinch: null };
 
   constructor(
     private readonly engine: PlaygroundEngine,
@@ -43,14 +49,37 @@ export class PlaygroundInteraction {
     if (dd) {
       gestures.on("pinchstart", ({ x, y }) => {
         if (!diving() || this.pointer.overUI) return;
+        // In the carousel a closed fist often reads as a pinch for a moment: never act on the start.
+        if (dd.picking) {
+          this.dd.pinch = { x, y, x0: x, y0: y, t: performance.now(), rolling: dd.rolling };
+          return;
+        }
         if (!dd.click(x, y)) this.dd.orbit = { x, y };
       });
       gestures.on("pinchmove", ({ x, y }) => {
-        if (!diving() || !this.dd.orbit) return;
+        if (!diving()) return;
+        const p = this.dd.pinch;
+        if (p) {
+          if (dd.picking) dd.grab(x - p.x, 0);
+          p.x = x;
+          p.y = y;
+          return;
+        }
+        if (!this.dd.orbit) return;
         dd.orbit(x - this.dd.orbit.x, y - this.dd.orbit.y);
         this.dd.orbit = { x, y };
       });
-      gestures.on("pinchend", () => void (this.dd.orbit = null));
+      gestures.on("pinchend", () => {
+        const p = this.dd.pinch;
+        this.dd.pinch = null;
+        this.dd.orbit = null;
+        if (!p || !diving() || !dd.picking) return;
+        // A deliberate tap = "this one": it lasted like a tap (a fist flickering into a pinch lasts a frame
+        // or two), stayed put, and didn't happen mid-roll. Anything else was part of a scroll.
+        const held = performance.now() - p.t;
+        if (!p.rolling && held > 90 && held < 650 && Math.hypot(p.x - p.x0, p.y - p.y0) < 0.03) dd.click(p.x0, p.y0);
+        else dd.release();
+      });
       gestures.on("grabmove", ({ dx, dy }) => diving() && dd.grab(dx, dy));
       gestures.on("grabend", () => diving() && dd.release());
       gestures.on("twohandstart", () => void (this.dd.zoom = diving() ? 1 : null));

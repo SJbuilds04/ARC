@@ -4,6 +4,7 @@ import { buildEarth, buildMars, buildMoon, buildSaturn, buildSolarSystem, buildS
 import { buildAtom, buildBrain, buildDna, buildHeart } from "./science";
 import { buildCar, buildEngine } from "./machines";
 import { holoMesh } from "../holo";
+import { inkScan } from "../ink";
 import { buildHulkbuster, buildIronSpider, buildMark3, buildMark42, buildMark50, buildMark85, buildSpiderClassic } from "./armor";
 import { buildArcReactor, buildArcReactor2 } from "./reactor";
 import { buildBlackHole } from "./blackhole";
@@ -70,5 +71,7 @@ export const BUILDERS: Record<string, Builder> = {
 
 export function build(kind: string): BuiltObject | null {
   const builder = BUILDERS[kind];
-  return builder ? builder() : null;
+  const built = builder ? builder() : null;
+  if (built) inkScan(built.content); // light theme: glow draws as ink
+  return built;
 }

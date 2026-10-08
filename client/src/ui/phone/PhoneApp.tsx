@@ -9,6 +9,7 @@ import { CameraPreview } from "../vision";
 import { RemoteTab } from "./RemoteTab";
 import { LibraryTab } from "./LibraryTab";
 import { SettingsTab, VisorTab } from "./MoreTabs";
+import { ThemeToggle } from "../theme";
 
 export type PhoneTab = "command" | "remote" | "library" | "visor" | "settings";
 
@@ -105,7 +106,10 @@ export function PhoneApp() {
       {camera === "on" && showFeed && <CameraPreview className="ph__feed" />}
       <header className="ph__top">
         <ArcLogo compact />
-        <PcPill onClick={() => setTab("remote")} />
+        <div className="ph__top-right">
+          <ThemeToggle className="theme-toggle--compact" />
+          <PcPill onClick={() => setTab("remote")} />
+        </div>
       </header>
 
       <main className="ph__body" key={tab}>

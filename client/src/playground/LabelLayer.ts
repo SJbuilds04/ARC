@@ -1,6 +1,13 @@
 import * as THREE from "three";
 import type { DeepDivePart } from "@shared/types";
 import type { PartAnchor } from "./objects/parts";
+import { isLight } from "../core/theme";
+
+/** The canvas only moves when the window resizes: read its rect once, not every frame (no forced layout). */
+let canvasRect: DOMRect | null = null;
+addEventListener("resize", () => (canvasRect = null));
+const rectOf = (canvas: HTMLCanvasElement) => (canvasRect ??= canvas.getBoundingClientRect());
+const labelInk = new THREE.Color();
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const CARD_W = 172;
@@ -16,9 +23,31 @@ interface Item {
   occluded: boolean;
   shown: boolean;
   infoText: string;
+  /** Card height, measured only when what's on the card changes (measuring every frame forces a layout). */
+  h: number;
+  hKey: string;
 }
 
 const tmp = new THREE.Vector3();
+const tmpWorld = new THREE.Vector3();
+const tmpRight = new THREE.Vector3();
+const tmpEdge = new THREE.Vector3();
+
+/** Bumped when the web fonts finish loading (text wraps differently then). */
+let fontEpoch = 0;
+void document.fonts?.ready.then(() => fontEpoch++);
+
+function cardHeight(it: Item): number {
+  const key = `${fontEpoch}|${it.card.classList.contains("has-info")}|${it.infoText}|${it.name.textContent}`;
+  if (key !== it.hKey || !it.h) {
+    const h = it.card.offsetHeight;
+    if (h > 0) {
+      it.h = h;
+      it.hKey = key;
+    }
+  }
+  return it.h || 30;
+}
 
 /**
  * AR labels for Deep Dive, drawn as DOM (crisp text, no GL cost) and positioned imperatively
@@ -68,7 +97,7 @@ export class LabelLayer {
       line.classList.add("dd-label__line");
       this.svg.appendChild(line);
       this.el.append(dot, card);
-      const item: Item = { part, card, name, info, dot, line, occluded: false, shown: true, infoText: "" };
+      const item: Item = { part, card, name, info, dot, line, occluded: false, shown: true, infoText: "", h: 0, hKey: "" };
       this.items.set(part.id, item);
       this.show(item, false);
     }
@@ -123,15 +152,16 @@ export class LabelLayer {
       this.visible = true;
       this.el.style.display = "";
     }
-    this.el.style.setProperty("--dd-label", color);
-    const rect = canvas.getBoundingClientRect();
+    // light theme: the label colour as dark ink, so it reads on the light page
+    this.el.style.setProperty("--dd-label", isLight() ? `#${labelInk.set(color).multiplyScalar(0.22).getHexString()}` : color);
+    const rect = rectOf(canvas);
     const project = (v: THREE.Vector3) => {
       const p = tmp.copy(v).project(camera);
       return { x: rect.left + ((p.x + 1) / 2) * rect.width, y: rect.top + ((1 - p.y) / 2) * rect.height, z: p.z };
     };
     const c = project(centre);
-    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
-    const edge = project(centre.clone().addScaledVector(right, radius));
+    const right = tmpRight.setFromMatrixColumn(camera.matrixWorld, 0);
+    const edge = project(tmpEdge.copy(centre).addScaledVector(right, radius));
     const r = Math.max(60, Math.hypot(edge.x - c.x, edge.y - c.y));
     const minX = (safe?.left ?? rect.left + 16) + 4;
     const maxX = (safe?.right ?? rect.right - 16) - 4;
@@ -144,7 +174,7 @@ export class LabelLayer {
         this.show(it, false);
         continue;
       }
-      const world = it.part.anchor.getWorldPosition(new THREE.Vector3());
+      const world = it.part.anchor.getWorldPosition(tmpWorld);
       const s = project(world);
       if (s.z > 1 || s.z < -1) {
         this.show(it, false);
@@ -163,8 +193,8 @@ export class LabelLayer {
       this.show(it, true);
     }
 
-    // Measure every card in one layout pass (names and functions wrap to several lines).
-    for (const e of [...sides.L, ...sides.R]) e.h = e.it.card.offsetHeight || 30;
+    // Card heights (names and functions wrap to several lines): re-measured only when a card changes.
+    for (const e of [...sides.L, ...sides.R]) e.h = cardHeight(e.it);
     const top0 = rect.top + 100; // below the top bar
     const bottom0 = rect.bottom - 170; // above the reply + command bar
     for (const side of ["L", "R"] as const) {
@@ -176,7 +206,7 @@ export class LabelLayer {
         if (total() <= room) break;
         const squeezed = list.filter((e) => e.it.part.id !== focusId && (pass === 1 || e.it.part.level === 2) && e.it.card.classList.contains("has-info"));
         for (const e of squeezed) e.it.card.classList.remove("has-info");
-        for (const e of squeezed) e.h = e.it.card.offsetHeight || 30;
+        for (const e of squeezed) e.h = cardHeight(e.it);
       }
       // Push cards apart vertically, then pull the stack back on screen if it overflows.
       let cursor = top0;

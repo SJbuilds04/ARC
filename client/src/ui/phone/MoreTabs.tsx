@@ -6,6 +6,7 @@ import { Icon } from "../Icons";
 import { StatusHud } from "../vision";
 import { BrightnessControl } from "../deepdive";
 import { VoicePanel, voiceEngineLabel } from "../voice";
+import { ThemeChoice } from "../theme";
 
 export function VisorTab() {
   const visorDevice = useArc((s) => s.state?.visor.device ?? null);
@@ -43,6 +44,10 @@ export function SettingsTab() {
   const voice = s?.services.voice;
   return (
     <div className="ph-stack">
+      <Panel title="APPEARANCE" className="ph-card">
+        <ThemeChoice />
+        <p className="muted small">Light or dark, on this phone. The visor always stays dark.</p>
+      </Panel>
       <Panel title="LISTENING" className="ph-card">
         <button className={`toggle ${local.handsFree ? "is-on" : ""}`} onClick={() => toggle("handsFree")}>
           <span>Hands-free (“JARVIS…”)</span>

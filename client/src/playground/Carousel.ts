@@ -3,6 +3,8 @@ import type { BuiltObject } from "./objects/types";
 import { holoMaterial } from "./holo";
 import { kitDetail } from "./objects/suitkit";
 import { visibleBox } from "./objects/parts";
+import { inkScan } from "./ink";
+import { isLight, onTheme } from "../core/theme";
 
 export interface CarouselItem {
   id: string;
@@ -20,6 +22,10 @@ interface Slot {
   preview: BuiltObject | null;
   building: boolean;
   front: boolean;
+  /** Time since the preview last animated (side models animate at a lower rate). */
+  tick: number;
+  /** When it was last on screen (built previews are kept, the oldest freed first). */
+  seenAt: number;
 }
 
 /** Angle between neighbouring models on the arc. */
@@ -31,6 +37,12 @@ const FRONT_Z = 1.15;
 /** Models either side of the front that are shown (and built) — the rest wait off-stage. */
 const WINDOW = 3;
 const PREVIEW_RADIUS = 0.52;
+/** Built previews kept in memory: scrolling back and forth reuses them instead of rebuilding. */
+const MAX_PREVIEWS = 12;
+/** A grab that ends settles this much later: a hand flickering out of a fist for a few frames isn't a release. */
+const RELEASE_GRACE_MS = 320;
+/** At most this far ahead of where the carousel is, so a hard flick doesn't race through everything. */
+const MAX_LEAD = 2.5;
 
 /**
  * A fixed arc of live 3D models in AR hologram style, the selected one at the front.
@@ -45,12 +57,39 @@ export class Carousel {
   private pos = 0;
   private target = 0;
   private dragging = false;
-  private holo = holoMaterial(0x6fd8ff, { opacity: 0.8, fresnel: 1.9, scan: 1 });
-  private holoFront = holoMaterial(0xbff2ff, { opacity: 1, fresnel: 1.6, scan: 1 });
+  /** Drag speed (models per second), smoothed: a flick carries on and settles. */
+  private vel = 0;
+  private lastDragAt = 0;
+  private releaseAt = 0;
+  private movedAt = 0;
+  private lastBuildAt = 0;
+  private frameNo = 0;
+  private holo = holoMaterial(0x6fd8ff, { opacity: 0.8, fresnel: 1.9, scan: 1, ink: { alpha: 2.8 } });
+  private holoFront = holoMaterial(0xbff2ff, { opacity: 1, fresnel: 1.6, scan: 1, ink: { tone: 0.22, alpha: 3 } });
+  /** Inside every hologram: dark glass on the dark theme, pale paper on the light one (the ink reads on it). */
   private core = new THREE.MeshBasicMaterial({ color: 0x041626, transparent: true, opacity: 0.55, depthWrite: true });
   private frontIdx = -1;
   /** Supplied by Deep Dive: builds a model (built-in or imported). */
   makeModel: (id: string) => Promise<BuiltObject | null> = async () => null;
+
+  constructor() {
+    this.applyTheme();
+    onTheme(() => {
+      this.applyTheme();
+      // labels are drawn into textures: redraw them in the new colours
+      for (const s of this.slots) {
+        const front = s.front;
+        s.front = !front;
+        this.relabel(s, front);
+      }
+    });
+  }
+
+  private applyTheme(): void {
+    const light = isLight();
+    this.core.color.set(light ? 0xf2f6fa : 0x041626);
+    this.core.opacity = light ? 0.4 : 0.55;
+  }
 
   get count(): number {
     return this.slots.length;
@@ -66,6 +105,9 @@ export class Carousel {
     this.slots = items.map((item) => this.makeSlot(item));
     const at = keep ? items.findIndex((i) => i.id === keep) : -1;
     this.pos = this.target = Math.max(0, at);
+    this.dragging = false;
+    this.releaseAt = 0;
+    this.vel = 0;
     this.frontIdx = -1;
   }
 
@@ -85,7 +127,7 @@ export class Carousel {
     group.add(label);
     group.visible = false;
     this.group.add(group);
-    return { item, group, holder, pick, label, pedestal, preview: null, building: false, front: false };
+    return { item, group, holder, pick, label, pedestal, preview: null, building: false, front: false, tick: 0, seenAt: 0 };
   }
 
   private makeLabel(item: CarouselItem, front: boolean): THREE.Mesh {
@@ -93,19 +135,20 @@ export class Carousel {
     c.width = 640;
     c.height = 192;
     const g = c.getContext("2d")!;
+    const light = isLight();
     g.textAlign = "center";
     if (front) {
-      g.fillStyle = "rgba(126,190,226,1)";
+      g.fillStyle = light ? "#3d6d94" : "rgba(126,190,226,1)";
       g.font = "600 28px Rajdhani, sans-serif";
       g.fillText(item.category.toUpperCase(), 320, 40);
     }
-    g.fillStyle = "rgba(240,250,255,1)";
+    g.fillStyle = light ? "#0d2236" : "rgba(240,250,255,1)";
     g.font = `700 ${front ? 58 : 50}px Rajdhani, sans-serif`;
     let name = item.name.toUpperCase();
     while (g.measureText(name).width > 610 && name.length > 3) name = name.slice(0, -2) + "…";
     g.fillText(name, 320, 100);
     if (front) {
-      g.fillStyle = "rgba(127,220,255,0.85)";
+      g.fillStyle = light ? "#0a6fa8" : "rgba(127,220,255,0.85)";
       g.font = "600 24px Rajdhani, sans-serif";
       g.fillText("PINCH · CLICK · “THIS ONE” TO OPEN", 320, 150);
     }
@@ -147,6 +190,9 @@ export class Carousel {
       const core = new THREE.Mesh(mesh.geometry, this.core);
       core.scale.setScalar(0.985);
       core.userData.arExtra = true;
+      // the shell draws after its core: glow over glass, or (light theme) ink over paper
+      core.renderOrder = mesh.renderOrder;
+      mesh.renderOrder = core.renderOrder + 1;
       mesh.add(core);
     });
     b.content.traverse((o) => {
@@ -178,6 +224,7 @@ export class Carousel {
       if (b.setStyle) {
         b.setStyle({ holo: true, color: "#6fd8ff" });
         b.update?.(4, 0); // settle into the hologram look at once (no fade on a preview)
+        inkScan(b.content);
       }
       this.hologram(b, front);
       b.content.updateMatrixWorld(true);
@@ -226,10 +273,28 @@ export class Carousel {
     return d;
   }
 
+  /** Being rolled right now, or was a moment ago (a pinch then is part of the roll, not a tap). */
+  get rolling(): boolean {
+    return this.dragging || performance.now() - this.lastDragAt < 450;
+  }
+
+  /** Seconds since the carousel last moved (thumbnail baking waits for a still carousel). */
+  get idleFor(): number {
+    return (performance.now() - this.movedAt) / 1000;
+  }
+
   update(dt: number, t = 0): void {
     const n = this.slots.length;
     if (!n) return;
-    this.pos += (this.target - this.pos) * (1 - Math.exp(-dt * (this.dragging ? 16 : 7)));
+    const now = performance.now();
+    if (this.releaseAt && now - this.releaseAt > RELEASE_GRACE_MS) this.settle();
+    // the hand went away mid-drag (no release event): settle anyway
+    if (this.dragging && !this.releaseAt && now - this.lastDragAt > 700) this.settle();
+    this.pos += (this.target - this.pos) * (1 - Math.exp(-dt * (this.dragging ? 14 : 7)));
+    if (Math.abs(this.target - this.pos) < 1e-4) this.pos = this.target;
+    const moving = this.dragging || Math.abs(this.target - this.pos) > 0.3;
+    if (this.dragging || Math.abs(this.target - this.pos) > 0.01) this.movedAt = now;
+    this.frameNo++;
     const front = this.frontIndex();
     if (front !== this.frontIdx) {
       if (this.frontIdx >= 0 && this.slots[this.frontIdx]) this.setFront(this.slots[this.frontIdx], false);
@@ -243,10 +308,8 @@ export class Carousel {
       const off = this.offset(i);
       const visible = d <= WINDOW + 0.5 && (n > 1 || d < 0.5);
       s.group.visible = visible;
-      if (!visible) {
-        if (d > WINDOW + 1.5) this.freePreview(s);
-        continue;
-      }
+      if (!visible) continue;
+      s.seenAt = now;
       const theta = off * STEP;
       s.group.position.set(Math.sin(theta) * ARC, 0, Math.cos(theta) * ARC - ARC + FRONT_Z);
       s.group.rotation.y = theta * 0.85;
@@ -257,35 +320,81 @@ export class Carousel {
       (s.label.material as THREE.MeshBasicMaterial).opacity = (0.35 + 0.65 * nearness) * fade;
       const pm = s.pedestal.material as THREE.ShaderMaterial;
       pm.uniforms.uOpacity.value = (0.25 + 0.75 * nearness) * fade;
-      if (!s.preview && !s.building && !startedBuild) {
-        startedBuild = true; // one new model per frame, nearest first
+      // Building a model is the expensive part: while it spins only the front one builds; the rest
+      // wait until it slows down. At most one build every ~0.1 s, nearest first.
+      if (!s.preview && !s.building && !startedBuild && (d < 0.6 || !moving) && now - this.lastBuildAt > 100) {
+        startedBuild = true;
+        this.lastBuildAt = now;
         void this.build(s, i === front);
       }
       if (s.preview) {
         s.holder.rotation.y += dt * (i === front ? 0.45 : 0.18);
-        s.preview.update?.(dt, t);
+        // the front and its neighbours animate every frame; the smaller side ones at a quarter of the rate
+        s.tick += dt;
+        if (d < 1.5 || (this.frameNo + i) % 4 === 0) {
+          s.preview.update?.(Math.min(s.tick, 0.2), t);
+          s.tick = 0;
+        }
         s.holder.visible = fade > 0.02;
       }
+    }
+    this.trimPreviews();
+  }
+
+  /** Keep at most MAX_PREVIEWS built: free the ones off-screen for longest. */
+  private trimPreviews(): void {
+    const built = this.slots.filter((s) => s.preview && !s.group.visible);
+    let count = this.slots.filter((s) => s.preview).length;
+    if (count <= MAX_PREVIEWS) return;
+    built.sort((a, b) => a.seenAt - b.seenAt);
+    for (const s of built) {
+      if (count <= MAX_PREVIEWS) break;
+      this.freePreview(s);
+      count--;
     }
   }
 
   drag(dx: number): void {
-    this.dragging = true;
-    this.target -= dx * 7;
+    const now = performance.now();
+    if (!this.dragging) {
+      this.dragging = true;
+      this.vel = 0;
+      this.lastDragAt = now;
+    }
+    this.releaseAt = 0;
+    const step = -dx * 7;
+    this.target = THREE.MathUtils.clamp(this.target + step, this.pos - MAX_LEAD, this.pos + MAX_LEAD);
+    const sec = Math.max(0.008, (now - this.lastDragAt) / 1000);
+    this.lastDragAt = now;
+    this.vel = this.vel * 0.7 + (step / sec) * 0.3;
   }
 
+  /** Let go: settles a moment later (a hand flickering out of a fist re-grabs within the grace). */
   release(): void {
+    if (this.dragging) this.releaseAt = performance.now();
+  }
+
+  /** Carry on a little with the flick, then come to rest on a model. */
+  private settle(): void {
+    const fling = THREE.MathUtils.clamp(this.vel * 0.12, -2, 2);
     this.dragging = false;
-    this.target = Math.round(this.target);
+    this.releaseAt = 0;
+    this.vel = 0;
+    this.target = Math.round(THREE.MathUtils.clamp(this.target + fling, this.pos - MAX_LEAD, this.pos + MAX_LEAD));
   }
 
   step(n: number): void {
+    this.dragging = false;
+    this.releaseAt = 0;
     this.target = Math.round(this.target) + n;
   }
 
   goTo(index: number): void {
     const n = this.slots.length;
     if (!n) return;
+    this.dragging = false;
+    this.releaseAt = 0;
+    this.vel = 0;
     const cur = Math.round(this.target);
     let delta = (((index - cur) % n) + n) % n;
     if (delta > n / 2) delta -= n;
@@ -295,7 +404,11 @@ export class Carousel {
   /** Jump straight to a model (e.g. the one you just left) without spinning round. */
   focusOn(id: string): void {
     const i = this.slots.findIndex((s) => s.item.id === id);
-    if (i >= 0) this.pos = this.target = i;
+    if (i < 0) return;
+    this.pos = this.target = i;
+    this.dragging = false;
+    this.releaseAt = 0;
+    this.vel = 0;
   }
 
   frontIndex(): number {

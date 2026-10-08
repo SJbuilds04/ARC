@@ -11,6 +11,12 @@ import { Carousel, type CarouselItem } from "./Carousel";
 import { kitDetail } from "./objects/suitkit";
 import { studioRig } from "./studio";
 import { LabelLayer } from "./LabelLayer";
+import { inkScan } from "./ink";
+import { isLight } from "../core/theme";
+
+/** The stage colour Deep Dive starts with; in the light theme it means the light studio. */
+const DEFAULT_BG = "#02070f";
+const LIGHT_STUDIO = "#e9eef3";
 
 const STAGE_Y = 0.1;
 const MODEL_RADIUS = 1.35;
@@ -78,6 +84,8 @@ export class DeepDive {
   pinMode = false;
   /** Free horizontal space between the UI panels (viewport px); labels stay inside it. */
   private safe: { left: number; right: number } | null = null;
+  /** Last centre shift asked for, so it's only recomputed when the layout changes (no per-frame layout reads). */
+  private shiftKey = "";
   private viewMode: "carousel" | "model" | null = null;
 
   /** Wired by services: library lookup, thumbnails, and callbacks back to ARC Core. */
@@ -97,9 +105,11 @@ export class DeepDive {
     this.stage.position.y = STAGE_Y;
     engine.scene.add(this.stage);
     this.platform = buildPlatform();
+    inkScan(this.platform);
     this.platform.position.y = -MODEL_RADIUS - 0.08;
     this.stage.add(this.platform);
     this.floor = buildStudioFloor();
+    inkScan(this.floor);
     this.floor.visible = false;
     this.stage.add(this.floor);
     this.carousel = new Carousel();
@@ -137,7 +147,7 @@ export class DeepDive {
     if (!active && wasActive) this.leave();
     if (!active) return;
 
-    this.engine.setStudio(dd.settings.bg, this.wantsSpace());
+    this.engine.setStudio(this.stageBg(dd.settings), this.wantsSpace());
     this.carousel.setItems(this.carouselItems(library, dd.collection), this.thumbs());
     this.carousel.group.visible = !dd.modelId;
 
@@ -170,6 +180,11 @@ export class DeepDive {
     return { azimuth: 0, elevation: 0.07, distance: 6.6, target: new THREE.Vector3(0, STAGE_Y + 0.22, 0.35) };
   }
 
+  /** The backdrop: the chosen colour, except that the default stage is the light studio in the light theme. */
+  private stageBg(s: DeepDiveSettings): string {
+    return isLight() && s.bg.toLowerCase() === DEFAULT_BG ? LIGHT_STUDIO : s.bg;
+  }
+
   /** Models like the black hole ask for deep space behind them (while their stars are on). */
   private wantsSpace(): boolean {
     const ud = this.model?.built.content.userData;
@@ -185,8 +200,15 @@ export class DeepDive {
   }
 
   private applyShift(): void {
-    const rect = this.engine.canvas.getBoundingClientRect();
-    this.engine.setCenterShift(this.safe && !this.picking ? (this.safe.left + this.safe.right) / 2 - (rect.left + rect.width / 2) : 0);
+    const key = `${this.safe?.left}|${this.safe?.right}|${this.picking}|${innerWidth}|${innerHeight}`;
+    if (key === this.shiftKey) return;
+    this.shiftKey = key;
+    if (!this.safe || this.picking) {
+      this.engine.setCenterShift(0);
+      return;
+    }
+    const rect = this.engine.rect;
+    this.engine.setCenterShift((this.safe.left + this.safe.right) / 2 - (rect.left + rect.width / 2));
   }
 
   private enter(): void {
@@ -331,9 +353,10 @@ export class DeepDive {
     if (!s) return;
     this.carousel.update(dt, t);
     this.applyShift();
-    if (this.picking && !this.baking && (this.bakeAfter -= dt) <= 0) void this.bakeNext();
+    // thumbnails bake in the background only while the carousel is still (never while you scroll)
+    if (this.picking && !this.baking && this.carousel.idleFor > 2.5 && (this.bakeAfter -= dt) <= 0) void this.bakeNext();
     this.platform.visible = Boolean(this.model) && s.ar && !this.focusId && !this.model?.built.content.userData.noPlatform;
-    this.engine.setStudio(s.bg, this.wantsSpace());
+    this.engine.setStudio(this.stageBg(s), this.wantsSpace());
     this.platform.rotation.y += dt * 0.15;
     this.floor.visible = Boolean(this.model?.built.content.userData.grounded) && !s.ar && s.style === "solid" && !this.focusId && Math.abs(this.model?.root.rotation.x ?? 0) < 0.05;
     const m = this.model;
@@ -344,7 +367,7 @@ export class DeepDive {
         m.built.explode(this.explode);
       }
       m.built.update?.(dt, t);
-      const key = `${s.ar}|${s.style}|${s.color}|${this.focusId}`;
+      const key = `${s.ar}|${s.style}|${s.color}|${this.focusId}|${isLight()}`;
       if (key !== this.styleKey) {
         this.styleKey = key;
         this.restyle(s);
@@ -416,22 +439,28 @@ export class DeepDive {
     if (!s || !m) return;
     // models that render themselves (the black hole) switch to their own hologram look
     m.built.setStyle?.({ holo: s.ar || s.style !== "solid", color: s.color });
+    inkScan(m.built.content);
     const focusMeshes = new Set(m.parts.find((p) => p.id === this.focusId)?.meshes ?? []);
     if (s.style === "solid" && !s.ar && !focusMeshes.size) return;
 
     const dense = m.tris > DENSE_TRIANGLES;
     const color = new THREE.Color(s.color);
     const highlight = new THREE.Color("#ffb347");
-    const core = new THREE.MeshStandardMaterial({ color: color.clone().multiplyScalar(0.08), emissive: color.clone().multiplyScalar(0.05), metalness: 0.4, roughness: 0.4, transparent: true, opacity: 0.6, depthWrite: true });
+    // light theme: the hologram is drawn in ink on a pale paper-like core instead of glowing over a dark one
+    const light = isLight();
+    const core = light
+      ? new THREE.MeshStandardMaterial({ color: 0xeef3f8, metalness: 0, roughness: 0.85, transparent: true, opacity: 0.35, depthWrite: true })
+      : new THREE.MeshStandardMaterial({ color: color.clone().multiplyScalar(0.08), emissive: color.clone().multiplyScalar(0.05), metalness: 0.4, roughness: 0.4, transparent: true, opacity: 0.6, depthWrite: true });
     const shell = holoMaterial(color, { opacity: 0.95, fresnel: 2, scan: 1 });
     const shellHot = holoMaterial(highlight, { opacity: 1, fresnel: 1.6, scan: 1 });
     // Wireframe: hidden-line edges over a dark silhouette, at brightness-controlled intensity
     // (drawing every edge of a dense model additively saturates to white).
     const lineColor = s.ar ? color.clone() : new THREE.Color("#9fd6ff");
-    const wireCore = new THREE.MeshBasicMaterial({ color: lineColor.clone().multiplyScalar(0.045), polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    const wireCore = new THREE.MeshBasicMaterial({ color: light ? new THREE.Color(0xf4f7fa) : lineColor.clone().multiplyScalar(0.045), polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     const wireLines = lineMaterial(lineColor, dense ? 0.8 : 0.6);
     const hotLines = lineMaterial(highlight, 0.95);
-    const xray = holoMaterial(s.ar ? color : new THREE.Color("#d6ecff"), { opacity: dense ? 0.26 : 0.55, fresnel: 1.4, scan: s.ar ? 0.8 : 0 });
+    // x-ray builds up from many see-through layers; ink doesn't add up like light, so it's drawn bolder
+    const xray = holoMaterial(s.ar ? color : new THREE.Color(light ? "#5b8db8" : "#d6ecff"), { opacity: dense ? 0.26 : 0.55, fresnel: 1.4, scan: s.ar ? 0.8 : 0, ink: { tone: 0.22, alpha: 4.5 } });
     const lineMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false });
     this.styleMats = [core, shell, shellHot, wireCore, wireLines, hotLines, xray, lineMat];
 
@@ -452,6 +481,7 @@ export class DeepDive {
         const overlay = new THREE.Mesh(mesh.geometry, hot ? shellHot : shell);
         overlay.userData.arExtra = true;
         overlay.userData.noPick = true;
+        overlay.renderOrder = mesh.renderOrder + 1; // ink / glow over the core
         st.extras.push(overlay);
         const tris = (mesh.geometry.index?.count ?? mesh.geometry.attributes.position?.count ?? 0) / 3;
         if (tris > 0 && tris < MAX_EDGE_TRIANGLES) {
@@ -468,6 +498,7 @@ export class DeepDive {
       for (const e of st.extras) mesh.add(e);
       this.styled.push(st);
     });
+    inkScan(m.root);
   }
 
   /** Line geometry for a mesh, computed once and cached on it. */
@@ -506,12 +537,13 @@ export class DeepDive {
 
   // ─── Input (mouse, hands, phone) ───
 
+  // The carousel has one fixed view: nothing orbits or zooms the camera while it's showing.
   orbit(dx: number, dy: number): void {
-    this.engine.orbitBy(-dx * 3.2, dy * 2.2);
+    if (!this.picking) this.engine.orbitBy(-dx * 3.2, dy * 2.2);
   }
 
   zoom(factor: number): void {
-    this.engine.zoomBy(factor);
+    if (!this.picking) this.engine.zoomBy(factor);
   }
 
   /** Fist: turn the model itself (or spin the carousel while picking). */
@@ -528,6 +560,11 @@ export class DeepDive {
 
   release(): void {
     if (this.picking) this.carousel.release();
+  }
+
+  /** The carousel is being rolled (or just was). */
+  get rolling(): boolean {
+    return this.picking && this.carousel.rolling;
   }
 
   step(n: number): void {
@@ -584,7 +621,7 @@ export class DeepDive {
   }
 
   private ray(nx: number, ny: number): THREE.Raycaster {
-    const rect = this.engine.canvas.getBoundingClientRect();
+    const rect = this.engine.rect;
     const x = ((nx * innerWidth - rect.left) / rect.width) * 2 - 1;
     const y = -(((ny * innerHeight - rect.top) / rect.height) * 2 - 1);
     this.raycaster.far = Infinity;

@@ -3,6 +3,7 @@ import { COLLECTIONS, catalogEntry } from "@shared/catalog";
 import type { DeepDiveSettings, PlaygroundAction } from "@shared/types";
 import { useArc } from "../core/store";
 import { arc } from "../core/services";
+import { useTheme } from "../core/theme";
 
 export const ddAction = (action: PlaygroundAction) => arc.send({ type: "ACTION_REQUEST", action });
 export const ddSet = (patch: Partial<DeepDiveSettings>) => ddAction({ action: "DEEP_DIVE_SET", ...patch });
@@ -64,13 +65,22 @@ export function BrightnessControl() {
   return <LiveSlider label="BRIGHTNESS" value={b} min={0} max={1} step={0.02} onCommit={(v) => arc.send({ type: "ACTION_REQUEST", action: { action: "SET_BRIGHTNESS", value: v } })} />;
 }
 
-export const BG_SWATCHES = [
+export const BG_SWATCHES: { name: string; value: string; show?: string }[] = [
   { name: "Space", value: "#02070f" },
   { name: "Black", value: "#000000" },
   { name: "Navy", value: "#04102e" },
   { name: "Graphite", value: "#1c2129" },
   { name: "Plum", value: "#14062a" },
   { name: "Forest", value: "#062914" },
+];
+/** On the light theme: the default stage is the light studio, plus light backdrops and one dark one. */
+export const BG_SWATCHES_LIGHT: { name: string; value: string; show?: string }[] = [
+  { name: "Studio", value: "#02070f", show: "#e9eef3" },
+  { name: "White", value: "#ffffff" },
+  { name: "Mist", value: "#dde5ee" },
+  { name: "Sky", value: "#d9e8f7" },
+  { name: "Paper", value: "#f1ebe1" },
+  { name: "Night", value: "#000000" },
 ];
 export const HOLO_SWATCHES = [
   { name: "Cyan", value: "#5fd8ff" },
@@ -135,13 +145,13 @@ export function LiveSlider({
   );
 }
 
-function Swatches({ list, value, onPick, label }: { list: { name: string; value: string }[]; value: string; onPick: (v: string) => void; label: string }) {
+function Swatches({ list, value, onPick, label }: { list: { name: string; value: string; show?: string }[]; value: string; onPick: (v: string) => void; label: string }) {
   return (
     <div className="dd-swatches">
       <span>{label}</span>
       <div className="dd-swatches__row">
         {list.map((s) => (
-          <button key={s.value} className={`dd-swatch ${value.toLowerCase() === s.value ? "is-on" : ""}`} style={{ background: s.value }} onClick={() => onPick(s.value)} aria-label={`${label} ${s.name}`} title={s.name} />
+          <button key={s.value} className={`dd-swatch ${value.toLowerCase() === s.value ? "is-on" : ""}`} style={{ background: s.show ?? s.value }} onClick={() => onPick(s.value)} aria-label={`${label} ${s.name}`} title={s.name} />
         ))}
         <label className="dd-swatch dd-swatch--custom" title="Custom colour">
           <input type="color" value={value} onChange={(e) => onPick(e.target.value)} aria-label={`${label} custom colour`} />
@@ -155,6 +165,7 @@ function Swatches({ list, value, onPick, label }: { list: { name: string; value:
 export function DeepDiveControls({ compact = false }: { compact?: boolean }) {
   const s = useArc((x) => x.state?.deepDive.settings);
   const hasModel = useArc((x) => Boolean(x.state?.deepDive.modelId));
+  const light = useTheme() === "light";
   if (!s || !hasModel) return null;
   const labelsOn = s.labels ?? s.ar;
   return (
@@ -195,7 +206,7 @@ export function DeepDiveControls({ compact = false }: { compact?: boolean }) {
         </button>
         <LiveSlider label="SPEED" value={s.spin} min={0} max={1.5} step={0.05} onCommit={(v) => ddSet({ spin: v })} />
       </div>
-      <Swatches label="BACKGROUND" list={BG_SWATCHES} value={s.bg} onPick={(v) => ddSet({ bg: v })} />
+      <Swatches label="BACKGROUND" list={light ? BG_SWATCHES_LIGHT : BG_SWATCHES} value={s.bg} onPick={(v) => ddSet({ bg: v })} />
       <Swatches label="HOLOGRAM" list={HOLO_SWATCHES} value={s.color} onPick={(v) => ddSet({ color: v })} />
       {labelsOn && <Swatches label="LABELS" list={HOLO_SWATCHES} value={s.labelColor} onPick={(v) => ddSet({ labelColor: v })} />}
     </div>

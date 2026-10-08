@@ -8,6 +8,7 @@ import { CommandBar, ConfirmPanel, LatestExecution, ResponseBubble } from "../co
 import { StatusHud } from "../vision";
 import { PlaygroundOverlay } from "./PlaygroundOverlay";
 import { DevicesPanel, HistoryPanel, PairingCard, SystemPanel } from "./panels";
+import { ThemeToggle } from "../theme";
 
 const freq = new Uint8Array(128);
 const jarvisLevel = () => {
@@ -53,6 +54,7 @@ function TopBar() {
           <i className={`dot dot--${vs.status === "ACTIVE" ? "ok" : vs.status === "ERROR" ? "bad" : vs.status === "STARTING" ? "warn" : "off"}`} />
           <span className="pill-box__val">{vs.status}</span>
         </div>
+        <ThemeToggle />
       </div>
       <Clock withDate />
     </header>

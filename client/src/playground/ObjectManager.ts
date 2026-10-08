@@ -5,6 +5,7 @@ import { Emitter } from "../core/emitter";
 import { build } from "./objects/factory";
 import type { BuiltObject } from "./objects/types";
 import { holoMaterial } from "./holo";
+import { inkScan } from "./ink";
 import { buildImported } from "./ModelLoader";
 
 export interface ArcObject {
@@ -69,6 +70,8 @@ export class ObjectManager extends Emitter<ObjectEvents> {
     ringGeo.rotateX(-Math.PI / 2);
     this.selectionRing = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x8fe6ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.hoverRing = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x8fe6ff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false }));
+    inkScan(this.selectionRing);
+    inkScan(this.hoverRing);
     this.selectionRing.visible = this.hoverRing.visible = false;
     scene.add(this.selectionRing, this.hoverRing);
   }
