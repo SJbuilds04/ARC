@@ -21,6 +21,11 @@ export interface BuiltObject {
   actions?: ModelAction[];
   /** Apply an action's new value (the model animates toward it in update()). */
   act?(id: string, value: boolean | string): void;
+  /**
+   * Models with their own renderer (the black hole) can't take Deep Dive's hologram materials,
+   * so they switch looks themselves: `holo` for AR / wireframe / x-ray, in the chosen colour.
+   */
+  setStyle?(look: { holo: boolean; color: string }): void;
 }
 
 export interface ModelAction {

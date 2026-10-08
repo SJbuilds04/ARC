@@ -199,6 +199,8 @@ test("collections, brightness and model actions by voice", () => {
   ];
   const d = state({ settings: { brightness: 0.3 } as never, spaces: { PC: "PLAYGROUND", PHONE: "COMMAND" }, deepDive: { active: true, modelId: "mark3", modelName: "Mark III", settings: {} as never, parts: [], focusPart: null, collection: null, actions: acts } });
   assert.deepEqual(actionsOf("open the faceplate", d), [{ action: "MODEL_ACTION", id: "faceplate", value: true }]);
+  assert.deepEqual(actionsOf("switch model", d), [{ action: "DEEP_DIVE", enabled: true }]);
+  assert.deepEqual(actionsOf("back to the carousel", d), [{ action: "DEEP_DIVE", enabled: true }]);
   assert.deepEqual(actionsOf("close the helmet", d), [{ action: "MODEL_ACTION", id: "faceplate", value: false }]);
   assert.deepEqual(actionsOf("open it", d), [{ action: "MODEL_ACTION", id: "faceplate", value: true }]);
   assert.deepEqual(actionsOf("paint it gold", d), [{ action: "MODEL_ACTION", id: "paint", value: "Gold" }]);

@@ -300,7 +300,8 @@ export class DeviceHub implements Outbound {
         this.library.removeLabel(msg.model, msg.id);
         return;
       case "MODEL_DELETE":
-        this.library.delete(msg.model);
+        // only imported models live in the library: built-in models can't be deleted
+        if (this.library.delete(msg.model) && this.core.getState().deepDive.modelId === msg.model) this.core.setDeepDive(true, null, null);
         return;
       case "MODEL_RENAME":
         this.library.rename(msg.model, msg.name);

@@ -673,8 +673,14 @@ body.visor-open .ph {
 }
 .dd-panel__actions {
   display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 6px;
-  margin-top: 12px;
+  margin: 4px 0 12px;
+}
+.dd-panel__actions .btn {
+  padding: 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
 }
 .dd-parts-panel {
   width: 262px;
@@ -1041,14 +1047,26 @@ body.visor-open .ph {
 .dd-controls.is-compact .dd-spinrow .btn {
   min-height: 44px;
 }
-.dd-exit {
+.dd-top {
   position: absolute;
   left: 50%;
   top: 0;
   transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 2;
+}
+.dd-top .btn {
   min-height: 40px;
   padding: 0 16px;
-  z-index: 2;
+  white-space: nowrap;
+}
+.dd-switch {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.dd-delete-confirm {
+  animation: pulse 0.9s infinite;
 }
 
 .dd-toggles {
@@ -1232,4 +1250,40 @@ body:has(.desktop.is-diving .dd-panel) .notices {
 .dd-empty span {
   color: var(--text-dim);
   line-height: 1.5;
+}
+
+/* Playground shelf: imported models can be deleted (hover ×, tap again to confirm) */
+.shelf__cell {
+  position: relative;
+  display: flex;
+}
+.shelf__del {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  min-width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 110, 110, 0.45);
+  background: rgba(24, 4, 8, 0.82);
+  color: #ff9a9a;
+  opacity: 0;
+  transition: opacity 0.15s;
+  cursor: pointer;
+}
+.shelf__cell:hover .shelf__del,
+.shelf__cell:focus-within .shelf__del,
+.shelf__del.is-armed {
+  opacity: 1;
+}
+.shelf__del.is-armed {
+  left: 3px;
+  right: 3px;
+  padding: 0 4px;
+  font: 600 9.5px var(--font-mono);
+  letter-spacing: 0.06em;
+  background: rgba(170, 24, 36, 0.92);
+  color: #fff;
 }

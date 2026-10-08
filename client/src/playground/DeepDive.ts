@@ -6,7 +6,7 @@ import { build } from "./objects/factory";
 import type { BuiltObject } from "./objects/types";
 import { visibleBox, type PartAnchor } from "./objects/parts";
 import { buildImported } from "./ModelLoader";
-import { holoMaterial } from "./holo";
+import { holoMaterial, lineMaterial } from "./holo";
 import { Carousel, type CarouselItem } from "./Carousel";
 import { kitDetail } from "./objects/suitkit";
 import { studioRig } from "./studio";
@@ -19,6 +19,8 @@ const HOME: View = { azimuth: 0, elevation: 0.14, distance: 6.2, target: new THR
 const ALL_PARTS = 5.0;
 const WITH_INFO = 3.6;
 const MAX_EDGE_TRIANGLES = 90_000;
+/** Above this many triangles, wireframe shows feature edges (plate outlines) instead of every triangle. */
+const DENSE_TRIANGLES = 40_000;
 
 interface StageModel {
   id: string;
@@ -27,6 +29,7 @@ interface StageModel {
   root: THREE.Group;
   spinner: THREE.Group;
   parts: PartAnchor[];
+  tris: number;
 }
 
 interface Styled {
@@ -143,6 +146,8 @@ export class DeepDive {
       this.engine.setView(this.carouselView());
     }
     // A different model was asked for (null = back to the carousel: unload the current one).
+    // back to the carousel: the model you were looking at comes round to the front
+    if (dd.modelId === null && this.model) this.carousel.focusOn(this.model.id);
     if (dd.modelId !== (this.model?.id ?? null) && (dd.modelId === null || dd.modelId !== this.loading)) void this.load(dd.modelId);
     else if (this.model?.id.startsWith("m-")) this.syncPinnedLabels(library);
 
@@ -168,7 +173,9 @@ export class DeepDive {
   /** Models like the black hole ask for deep space behind them (while their stars are on). */
   private wantsSpace(): boolean {
     const ud = this.model?.built.content.userData;
-    return Boolean(ud?.spaceBackdrop && ud.spaceOn);
+    const s = this.settings;
+    // the hologram looks (AR / wireframe / x-ray) stay on the studio backdrop
+    return Boolean(ud?.spaceBackdrop && ud.spaceOn && s && !s.ar && s.style === "solid");
   }
 
   /** The overlay reports where its panels are, so labels and the model use the space between them. */
@@ -261,7 +268,12 @@ export class DeepDive {
       const foot = Math.max(fb.max.x - fb.min.x, fb.max.z - fb.min.z);
       this.floor.children[2].scale.set(foot * 0.95, foot * 0.62, 1);
     }
-    this.model = { id, name, built, root, spinner, parts: built.parts ?? [] };
+    let tris = 0;
+    built.content.traverse((o) => {
+      const g = (o as THREE.Mesh).isMesh ? (o as THREE.Mesh).geometry : null;
+      if (g) tris += (g.index?.count ?? g.attributes.position?.count ?? 0) / 3;
+    });
+    this.model = { id, name, built, root, spinner, parts: built.parts ?? [], tris };
     this.styleKey = "";
     this.explode = 0;
     this.stageSince = performance.now();
@@ -278,6 +290,10 @@ export class DeepDive {
   private unload(): void {
     if (!this.model) return;
     this.restyle(null);
+    // line geometry cached on the meshes for wireframe / AR edges
+    this.model.root.traverse((o) => {
+      for (const key of ["ddWire", "ddEdges12", "ddEdges28"]) (o.userData[key] as THREE.BufferGeometry | undefined)?.dispose();
+    });
     this.stage.remove(this.model.root);
     this.model = null;
     this.labels.setParts([]);
@@ -390,37 +406,47 @@ export class DeepDive {
   private restyle(s: DeepDiveSettings | null): void {
     for (const st of this.styled) {
       st.mesh.material = st.original;
-      for (const e of st.extras) {
-        st.mesh.remove(e);
-        // Overlays share the model's geometry; only the edge geometry is ours to free.
-        if ((e as THREE.LineSegments).isLineSegments) (e as THREE.LineSegments).geometry.dispose();
-      }
+      // overlays share the model's geometry; line geometry stays cached on the mesh
+      for (const e of st.extras) st.mesh.remove(e);
     }
     this.styled = [];
     for (const mat of this.styleMats) mat.dispose();
     this.styleMats = [];
     const m = this.model;
     if (!s || !m) return;
+    // models that render themselves (the black hole) switch to their own hologram look
+    m.built.setStyle?.({ holo: s.ar || s.style !== "solid", color: s.color });
     const focusMeshes = new Set(m.parts.find((p) => p.id === this.focusId)?.meshes ?? []);
     if (s.style === "solid" && !s.ar && !focusMeshes.size) return;
 
+    const dense = m.tris > DENSE_TRIANGLES;
     const color = new THREE.Color(s.color);
     const highlight = new THREE.Color("#ffb347");
     const core = new THREE.MeshStandardMaterial({ color: color.clone().multiplyScalar(0.08), emissive: color.clone().multiplyScalar(0.05), metalness: 0.4, roughness: 0.4, transparent: true, opacity: 0.6, depthWrite: true });
     const shell = holoMaterial(color, { opacity: 0.95, fresnel: 2, scan: 1 });
     const shellHot = holoMaterial(highlight, { opacity: 1, fresnel: 1.6, scan: 1 });
-    const wire = new THREE.MeshBasicMaterial({ color: s.ar ? color : new THREE.Color("#a8dcff"), wireframe: true, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending });
-    const xray = holoMaterial(s.ar ? color : new THREE.Color("#d6ecff"), { opacity: 0.55, fresnel: 1.4, scan: s.ar ? 0.8 : 0 });
+    // Wireframe: hidden-line edges over a dark silhouette, at brightness-controlled intensity
+    // (drawing every edge of a dense model additively saturates to white).
+    const lineColor = s.ar ? color.clone() : new THREE.Color("#9fd6ff");
+    const wireCore = new THREE.MeshBasicMaterial({ color: lineColor.clone().multiplyScalar(0.045), polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    const wireLines = lineMaterial(lineColor, dense ? 0.8 : 0.6);
+    const hotLines = lineMaterial(highlight, 0.95);
+    const xray = holoMaterial(s.ar ? color : new THREE.Color("#d6ecff"), { opacity: dense ? 0.26 : 0.55, fresnel: 1.4, scan: s.ar ? 0.8 : 0 });
     const lineMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false });
-    this.styleMats = [core, shell, shellHot, wire, xray, lineMat];
+    this.styleMats = [core, shell, shellHot, wireCore, wireLines, hotLines, xray, lineMat];
 
     m.root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || mesh.userData.arExtra || mesh.userData.placeholder || mesh.userData.keepMaterial || !(mesh.material as THREE.Material).visible) return;
       const hot = focusMeshes.has(mesh);
       const st: Styled = { mesh, original: mesh.material, extras: [] };
-      if (s.style === "wireframe") mesh.material = hot ? shellHot : wire;
-      else if (s.style === "xray") mesh.material = hot ? shellHot : xray;
+      if (s.style === "wireframe") {
+        mesh.material = wireCore;
+        const lines = new THREE.LineSegments(this.lineGeometry(mesh, dense ? "ddEdges12" : "ddWire"), hot ? hotLines : wireLines);
+        lines.userData.arExtra = true;
+        lines.userData.noPick = true;
+        st.extras.push(lines);
+      } else if (s.style === "xray") mesh.material = hot ? shellHot : xray;
       else if (s.ar) {
         mesh.material = core;
         const overlay = new THREE.Mesh(mesh.geometry, hot ? shellHot : shell);
@@ -429,7 +455,7 @@ export class DeepDive {
         st.extras.push(overlay);
         const tris = (mesh.geometry.index?.count ?? mesh.geometry.attributes.position?.count ?? 0) / 3;
         if (tris > 0 && tris < MAX_EDGE_TRIANGLES) {
-          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, 28), lineMat);
+          const edges = new THREE.LineSegments(this.lineGeometry(mesh, "ddEdges28"), lineMat);
           edges.userData.arExtra = true;
           edges.userData.noPick = true;
           st.extras.push(edges);
@@ -442,6 +468,16 @@ export class DeepDive {
       for (const e of st.extras) mesh.add(e);
       this.styled.push(st);
     });
+  }
+
+  /** Line geometry for a mesh, computed once and cached on it. */
+  private lineGeometry(mesh: THREE.Mesh, kind: "ddWire" | "ddEdges12" | "ddEdges28"): THREE.BufferGeometry {
+    let g = mesh.userData[kind] as THREE.BufferGeometry | undefined;
+    if (!g) {
+      g = kind === "ddWire" ? new THREE.WireframeGeometry(mesh.geometry) : new THREE.EdgesGeometry(mesh.geometry, kind === "ddEdges12" ? 12 : 28);
+      mesh.userData[kind] = g;
+    }
+    return g;
   }
 
   // ─── Focus a part ───

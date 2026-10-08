@@ -85,6 +85,9 @@ Playground shows every model with its normal look. **Deep Dive** puts one model 
 * **Iron Man:** Mark III, Mark 42, Mark 50 Nanotech, Mark 85, Hulkbuster, plus Arc Reactor Mk I and Mk II. Spider-Man: Classic Suit and Iron Spider. Space: Gargantua, the Interstellar black hole. Physics & Quantum: Young's double slit, Newton's cradle, Newton's prism, a 4D tesseract, a quantum computer. *(These are ARC's own procedural models in the style of the films, not official assets.)*
 * **How the suits are made:** every suit stands on one anatomical body made of smooth analytic surfaces; each armour plate is an outline cut on those surfaces with real thickness, a bevelled edge and a dark panel gap, so the armour catches light like the real thing. Candy-red clear-coat paint with metal flake, gold-titanium, a machined arc reactor, glowing eyes, repulsors and boot thrusters. Spider-Man's web radiates from the chest emblem and the centre of the mask.
 * **Gargantua** is ray-traced per pixel through curved spacetime: the far side of the disk is bent over and under the black shadow, the photon ring hugs its edge, and the stars behind it are lensed. Like the film, the disk has no Doppler asymmetry. *Star backdrop* switches the studio to deep space.
+* **Gargantua in AR mode** (also wireframe / x-ray): the disk becomes a hologram of orbit rings and spokes that is still lensed over the top, the photon ring glows as the shadow's outline, a grid behind it bends into an Einstein ring, and a gravity well shows spacetime curving down into the hole.
+* **SWITCH MODEL** (next to EXIT DEEP DIVE, or say *"switch model"*) goes back to the carousel with the model you were looking at in front.
+* **Wireframe** shows clean edges over a dark silhouette (plate outlines on the suits), dimmed by the brightness slider.
 * **Studio lighting:** Deep Dive lights models like a product shoot (soft boxes, strip lights, a key with shadows), so paint and metal look real; the brightness slider still keeps everything dim by default.
 * **Interact with them:**
   * **Suits:** faceplate, repulsors, flight mode, open the armour, paint (Classic / Stealth / Gold / Silver).
@@ -104,6 +107,7 @@ Playground shows every model with its normal look. **Deep Dive** puts one model 
   * press IMPORT on the Playground shelf or the phone's Library tab
   * or drop them into the `models/` folder (picked up automatically)
 * ARC centres and scales the model, renders a thumbnail and adds it to the library. Spawn it by name ("spawn my drone") or Deep Dive into it.
+* **Delete** an imported model with the × on its Playground shelf tile, **DELETE MODEL** in Deep Dive, or the phone's Library tab (each asks you to tap again to confirm). The file is removed from the `models/` folder and the model leaves the stage. Built-in models can't be deleted.
 * **Labels for your models:**
   * **Named parts** (e.g. `Left_Ventricle` → "Left Ventricle") become labels automatically, and JARVIS writes a one-line function for each.
   * **One-piece models** get labels from **PIN LABEL** in Deep Dive: click a spot on the model, type the name, and JARVIS fills in the function.

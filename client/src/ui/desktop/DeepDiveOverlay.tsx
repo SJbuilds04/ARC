@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { useArc } from "../../core/store";
+import { useArc, notify } from "../../core/store";
 import { arc, deepDive } from "../../core/services";
 import { Panel } from "../primitives";
 import { Icon } from "../Icons";
@@ -82,11 +82,46 @@ function EmptyCollection() {
   );
 }
 
-/** Always on screen while diving (carousel or model). */
-function ExitButton() {
+/** Always on screen while diving: back to the carousel (with a model open) and leave. */
+function TopActions() {
+  const modelId = useArc((s) => s.state?.deepDive.modelId ?? null);
   return (
-    <button className="btn btn--deny dd-exit arc-ui-block" onClick={() => ddAction({ action: "DEEP_DIVE", enabled: false })} title="Leave Deep Dive (Esc)">
-      <Icon.Close width={16} height={16} /> EXIT DEEP DIVE
+    <div className="dd-top arc-ui-block">
+      {modelId && (
+        <button className="btn btn--tool dd-switch" onClick={() => ddAction({ action: "DEEP_DIVE", enabled: true })} title="Back to the model carousel (say “switch model”)">
+          <Icon.Library width={16} height={16} /> SWITCH MODEL
+        </button>
+      )}
+      <button className="btn btn--deny dd-exit" onClick={() => ddAction({ action: "DEEP_DIVE", enabled: false })} title="Leave Deep Dive (Esc)">
+        <Icon.Close width={16} height={16} /> EXIT DEEP DIVE
+      </button>
+    </div>
+  );
+}
+
+/** Imported models can be deleted (built-in ones stay forever). Two taps: arm, then confirm. */
+export function DeleteModelButton({ model, name, className = "btn btn--tool btn--danger" }: { model: string; name: string; className?: string }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const id = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(id);
+  }, [armed]);
+  if (!armed)
+    return (
+      <button className={className} onClick={() => setArmed(true)} title={`Delete ${name} from your library`}>
+        <Icon.Trash width={16} height={16} /> DELETE MODEL
+      </button>
+    );
+  return (
+    <button
+      className="btn btn--deny dd-delete-confirm"
+      onClick={() => {
+        arc.send({ type: "MODEL_DELETE", model });
+        notify({ level: "info", title: "MODEL DELETED", text: `${name} was removed from your library` }, 4000);
+      }}
+    >
+      <Icon.Trash width={16} height={16} /> TAP AGAIN TO DELETE
     </button>
   );
 }
@@ -134,20 +169,15 @@ export function DeepDiveOverlay() {
   return (
     <div className="dd-overlay">
       <LabelHost />
-      <ExitButton />
+      <TopActions />
       {title ? (
         <>
           <div className="dd-panel-wrap" ref={leftRef}>
           <Panel title="DEEP DIVE" className="dd-panel arc-ui-block">
             <div className="dd-panel__kicker">{title.category}</div>
             <div className="dd-panel__name">{title.name}</div>
-            <ModelActions />
-            <DeepDiveControls />
-            <div className="dd-panel__actions">
-              <button className="btn btn--tool" onClick={() => ddAction({ action: "DEEP_DIVE", enabled: true })}>
-                <Icon.Library width={16} height={16} /> CHANGE MODEL
-              </button>
-              {imported && (
+            {imported && modelId && (
+              <div className="dd-panel__actions">
                 <button
                   className={`btn btn--tool ${pinning ? "is-on" : ""}`}
                   onClick={() => {
@@ -158,8 +188,12 @@ export function DeepDiveOverlay() {
                 >
                   <Icon.Pin width={16} height={16} /> {pinning ? "CLICK THE MODEL…" : "PIN LABEL"}
                 </button>
-              )}
-            </div>
+                <DeleteModelButton model={modelId} name={title.name} />
+              </div>
+            )}
+            <ModelActions />
+            <DeepDiveControls />
+
           </Panel>
           </div>
           <div className="dd-parts-wrap" ref={rightRef}>

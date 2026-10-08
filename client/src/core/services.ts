@@ -71,6 +71,12 @@ if (playground && deepDive) {
     if (st) deepDive.sync(st.deepDive, st.spaces.PC === "PLAYGROUND", st.library);
   };
   useArc.subscribe((s, prev) => s.state !== prev.state && syncDeepDive());
+  // a model deleted from the library also leaves the Playground
+  useArc.subscribe((s, prev) => {
+    if (!s.state || !prev.state || s.state.library === prev.state.library) return;
+    const ids = new Set(s.state.library.map((m) => m.id));
+    for (const o of playground.objects.live()) if (o.kind.startsWith("m-") && !ids.has(o.kind)) playground.objects.remove(o);
+  });
   useArc.subscribe((s, prev) => {
     const b = s.state?.settings.brightness;
     if (b !== undefined && b !== prev.state?.settings.brightness) playground.setBrightness(b);

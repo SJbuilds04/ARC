@@ -140,6 +140,31 @@ export function ImportButton({ className = "shelf__item shelf__item--import", la
   );
 }
 
+/** Delete an imported model from the shelf: × on hover, tap again to confirm. */
+function ShelfDelete({ id, name }: { id: string; name: string }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 3500);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <button
+      className={`shelf__del ${armed ? "is-armed" : ""}`}
+      title={armed ? `Delete ${name}` : `Delete ${name} from your library`}
+      aria-label={`Delete ${name}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!armed) return setArmed(true);
+        arc.send({ type: "MODEL_DELETE", model: id });
+        notify({ level: "info", title: "MODEL DELETED", text: `${name} was removed from your library` }, 4000);
+      }}
+    >
+      {armed ? "DELETE?" : <Icon.Close width={12} height={12} />}
+    </button>
+  );
+}
+
 function Shelf() {
   const [offset, setOffset] = useState(0);
   const library = useArc((s) => s.state?.library ?? EMPTY);
@@ -154,10 +179,13 @@ function Shelf() {
         <Icon.Chevron width={18} height={18} style={{ transform: "scaleX(-1)" }} />
       </button>
       {page.map((o) => (
-        <button key={o.id} className={`shelf__item ${o.imported ? "is-imported" : ""}`} onClick={() => playgroundAction({ action: "SPAWN_OBJECT", object: o.id })} title={`Spawn ${o.name}`}>
-          {thumbs?.[o.id] ? <img src={thumbs[o.id]} alt="" className="shelf__thumb" /> : <ObjectGlyph kind={o.id} />}
-          <span>{o.name}</span>
-        </button>
+        <div key={o.id} className="shelf__cell">
+          <button className={`shelf__item ${o.imported ? "is-imported" : ""}`} onClick={() => playgroundAction({ action: "SPAWN_OBJECT", object: o.id })} title={`Spawn ${o.name}`}>
+            {thumbs?.[o.id] ? <img src={thumbs[o.id]} alt="" className="shelf__thumb" /> : <ObjectGlyph kind={o.id} />}
+            <span>{o.name}</span>
+          </button>
+          {o.imported && <ShelfDelete id={o.id} name={o.name} />}
+        </div>
       ))}
       <button className="shelf__nav" disabled={offset + visible >= items.length} onClick={() => setOffset((o) => Math.min(items.length - visible, o + 3))} aria-label="More models">
         <Icon.Chevron width={18} height={18} />

@@ -67,6 +67,18 @@ export function edgeLines(geometry: THREE.BufferGeometry, color: THREE.ColorRepr
   return lines;
 }
 
+/** Clean line material (normal blending) whose brightness follows the brightness control. */
+export function lineMaterial(color: THREE.ColorRepresentation = HOLO_CYAN, opacity = 0.7) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity }, uGain: holoGain },
+    vertexShader: /* glsl */ `void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uOpacity; uniform float uGain;
+      void main() { gl_FragColor = vec4(uColor * (0.3 + 0.6 * uGain), uOpacity * (0.5 + 0.5 * uGain)); }`,
+    transparent: true,
+    depthWrite: false,
+  });
+}
+
 /** Dark translucent core used inside holographic shells so objects read as solid. */
 export function coreMaterial(color: THREE.ColorRepresentation = 0x07182c, opacity = 0.85) {
   return new THREE.MeshStandardMaterial({ color, metalness: 0.6, roughness: 0.35, transparent: opacity < 1, opacity, emissive: 0x02101e });

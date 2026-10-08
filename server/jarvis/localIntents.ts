@@ -218,6 +218,8 @@ export function parseLocalIntent(raw: string, state: ArcState): LocalIntent | nu
     return reply("Pick a model, boss.", { action: "DEEP_DIVE", enabled: true });
   if (/^(exit|leave|close|stop|end|disable|turn off|quit)( the)? deep ?dive( mode)?$/.test(t))
     return reply("Leaving Deep Dive, boss.", { action: "DEEP_DIVE", enabled: false });
+  if (state.deepDive.active && /^((switch|change|swap)( the)? models?|(pick|choose|show me) (another|a different) (model|one)|(go )?back to( the)? (carousel|models|model list)|show( me)? the carousel)$/.test(t))
+    return reply("Pick a model, boss.", { action: "DEEP_DIVE", enabled: true });
   const dive = t.match(/^(?:deep ?dive|dive)(?: into| in| on| with)?(?: the| my| a)?\s+(.+?)(?: model)?$/);
   if (dive) {
     const id = resolveCatalogId(dive[1]);

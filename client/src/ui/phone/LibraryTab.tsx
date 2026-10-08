@@ -33,6 +33,7 @@ function ModelSheet({ item, onClose }: { item: Item; onClose: () => void }) {
   const diving = useArc((s) => Boolean(s.state?.deepDive.active) && s.state?.spaces.PC === "PLAYGROUND");
   const [name, setName] = useState(item.name);
   const [renaming, setRenaming] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const run = (fn: () => void) => {
     fn();
     onClose();
@@ -74,11 +75,16 @@ function ModelSheet({ item, onClose }: { item: Item; onClose: () => void }) {
                 RENAME
               </button>
             ))}
-          {item.imported && (
-            <button className="btn btn--deny" onClick={() => run(() => arc.send({ type: "MODEL_DELETE", model: item.id }))}>
-              <Icon.Trash width={18} height={18} /> DELETE FROM LIBRARY
-            </button>
-          )}
+          {item.imported &&
+            (confirmDelete ? (
+              <button className="btn btn--deny" onClick={() => run(() => arc.send({ type: "MODEL_DELETE", model: item.id }))}>
+                <Icon.Trash width={18} height={18} /> TAP AGAIN TO DELETE
+              </button>
+            ) : (
+              <button className="btn btn--deny" onClick={() => setConfirmDelete(true)}>
+                <Icon.Trash width={18} height={18} /> DELETE FROM LIBRARY
+              </button>
+            ))}
         </div>
       </div>
     </div>

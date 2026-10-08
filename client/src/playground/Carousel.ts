@@ -175,6 +175,10 @@ export class Carousel {
       kitDetail.value = 1;
       const b = await pending;
       if (!b || !this.slots.includes(s)) return;
+      if (b.setStyle) {
+        b.setStyle({ holo: true, color: "#6fd8ff" });
+        b.update?.(4, 0); // settle into the hologram look at once (no fade on a preview)
+      }
       this.hologram(b, front);
       b.content.updateMatrixWorld(true);
       const box = visibleBox(b.content);
@@ -286,6 +290,12 @@ export class Carousel {
     let delta = (((index - cur) % n) + n) % n;
     if (delta > n / 2) delta -= n;
     this.target = cur + delta;
+  }
+
+  /** Jump straight to a model (e.g. the one you just left) without spinning round. */
+  focusOn(id: string): void {
+    const i = this.slots.findIndex((s) => s.item.id === id);
+    if (i >= 0) this.pos = this.target = i;
   }
 
   frontIndex(): number {
