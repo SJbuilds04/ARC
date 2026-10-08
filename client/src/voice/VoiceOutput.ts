@@ -1,8 +1,9 @@
 import type { ServerMessageOf } from "@shared/types";
 import type { ArcClient } from "../core/ArcClient";
 import { ROLE } from "../core/device";
-import { setLocal } from "../core/store";
+import { setLocal, useArc } from "../core/store";
 import type { VoiceInput } from "./VoiceInput";
+import { JarvisFx } from "./JarvisFx";
 
 /** Male voices in preference order (British first — calm, JARVIS-like). */
 const MALE_VOICES = [
@@ -24,12 +25,13 @@ const MALE_VOICES = [
 ];
 
 /**
- * JARVIS's voice on this device. Prefers the server voice (Groq, streamed in
- * sentence chunks and played gaplessly through Web Audio); falls back to the
- * browser's best male voice. Only the primary device speaks.
+ * JARVIS's voice on this device. Prefers the server voice (Piper, streamed in
+ * sentence chunks and played gaplessly through Web Audio and the JARVIS effect);
+ * falls back to the browser's best male voice. Only the primary device speaks.
  */
 export class VoiceOutput {
   private ctx: AudioContext | null = null;
+  private fx: JarvisFx | null = null;
   readonly analyser: AnalyserNode | null = null;
   private currentId: string | null = null;
   private sources: AudioBufferSourceNode[] = [];
@@ -49,6 +51,9 @@ export class VoiceOutput {
   ) {
     arc.on("JARVIS_RESPONSE", (msg) => this.onResponse(msg));
     arc.on("JARVIS_AUDIO", (msg) => this.onAudio(msg));
+    arc.on("VOICE_SAMPLE", (msg) => void this.playSample(msg));
+    // the effect follows Settings, and turns into the helmet sound inside the visor
+    useArc.subscribe((s, prev) => s.state !== prev.state && this.applyFx());
     if ("speechSynthesis" in window) {
       const pick = () => (this.voice = pickMaleVoice());
       pick();
@@ -64,6 +69,8 @@ export class VoiceOutput {
       analyser.fftSize = 256;
       analyser.connect(this.ctx.destination);
       (this as { analyser: AnalyserNode | null }).analyser = analyser;
+      this.fx = new JarvisFx(this.ctx, analyser);
+      this.applyFx();
     }
     if (this.ctx.state === "suspended") void this.ctx.resume();
     const silent = this.ctx.createBuffer(1, 1, 22050);
@@ -104,6 +111,23 @@ export class VoiceOutput {
     if (this.serverTimeout) clearTimeout(this.serverTimeout);
     if ("speechSynthesis" in window) speechSynthesis.cancel();
     this.setSpeaking(false);
+  }
+
+  private applyFx(): void {
+    const s = useArc.getState().state;
+    if (this.fx && s) this.fx.set(s.voice.fx, s.spaces[ROLE] === "VISOR");
+  }
+
+  /** A voice preview from Settings: interrupts JARVIS and plays here. */
+  private async playSample(msg: ServerMessageOf<"VOICE_SAMPLE">): Promise<void> {
+    if (!this.ctx) return; // the preview button unlocks audio first
+    this.stop();
+    const id = `sample-${Date.now()}`;
+    this.currentId = id;
+    this.lastFull = "";
+    this.nextSeq = 1;
+    if (this.ctx.state !== "running") void this.ctx.resume().catch(() => undefined);
+    await this.schedule({ type: "JARVIS_AUDIO", id, seq: 0, last: true, mime: msg.mime, data: msg.data, rate: msg.rate });
   }
 
   private onResponse(msg: ServerMessageOf<"JARVIS_RESPONSE">): void {
@@ -159,10 +183,13 @@ export class VoiceOutput {
     if (id !== this.currentId) return;
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-    src.connect(this.analyser!);
+    // pitch: the server timed the speech for this rate, so only the pitch moves
+    const rate = chunk.rate && chunk.rate > 0.5 && chunk.rate < 2 ? chunk.rate : 1;
+    src.playbackRate.value = rate;
+    src.connect(this.fx?.input ?? this.analyser!);
     const start = Math.max(ctx.currentTime + 0.02, this.playhead);
     src.start(start);
-    this.playhead = start + buffer.duration;
+    this.playhead = start + buffer.duration / rate;
     this.sources.push(src);
     this.setSpeaking(true);
     src.onended = () => {
@@ -178,8 +205,9 @@ export class VoiceOutput {
     this.voice = this.voice ?? pickMaleVoice();
     if (this.voice) u.voice = this.voice;
     u.lang = this.voice?.lang ?? "en-GB";
-    u.rate = 1.02;
-    u.pitch = 0.88;
+    const v = useArc.getState().state?.voice;
+    u.rate = 1.02 * (v?.speed ?? 1);
+    u.pitch = Math.max(0.1, Math.min(2, 0.88 * Math.pow(2, (v?.pitch ?? 0) / 12)));
     u.onstart = () => this.setSpeaking(true);
     u.onend = () => this.scheduleEnd();
     u.onerror = () => this.scheduleEnd();

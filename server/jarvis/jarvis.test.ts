@@ -232,3 +232,21 @@ test("radiation & light models by voice", () => {
   // …but naming the machine still opens the machine (Jarvis turns the spawn into a dive while diving)
   assert.deepEqual(actionsOf("open the x ray machine", d), [{ action: "SPAWN_OBJECT", object: "xray_machine" }]);
 });
+
+test("JARVIS's own voice by voice", () => {
+  const voices = [
+    { id: "en_US-bryce-medium", name: "Bryce", language: "English (United States)", quality: "medium", speakers: 1, sizeMb: 63.5 },
+    { id: "en_GB-alan-medium", name: "Alan", language: "English (Great Britain)", quality: "medium", speakers: 1, sizeMb: 63.2 },
+  ];
+  const s = state({ voice: { id: "en_US-bryce-medium", speed: 1, pitch: 0, fx: 0.5, voices, engineReady: true, download: null } } as never);
+  assert.deepEqual(actionsOf("JARVIS, talk faster", s), [{ action: "SET_VOICE", speed: 1.1 }]);
+  assert.deepEqual(actionsOf("speak a bit slower", s), [{ action: "SET_VOICE", speed: 0.9 }]);
+  assert.deepEqual(actionsOf("make your voice deeper", s), [{ action: "SET_VOICE", pitch: -1 }]);
+  assert.deepEqual(actionsOf("turn off the voice effect", s), [{ action: "SET_VOICE", fx: 0 }]);
+  assert.deepEqual(actionsOf("turn on the jarvis effect", s), [{ action: "SET_VOICE", fx: 0.5 }]);
+  assert.deepEqual(actionsOf("reset your voice", s), [{ action: "SET_VOICE", speed: 1, pitch: 0 }]);
+  assert.deepEqual(actionsOf("change your voice to alan", s), [{ action: "SET_VOICE", voice: "en_GB-alan-medium" }]);
+  assert.deepEqual(actionsOf("use the bryce voice", s), [{ action: "SET_VOICE", voice: "en_US-bryce-medium" }]);
+  assert.deepEqual(actionsOf("change your voice to morgan freeman", s), []); // not installed: JARVIS says so, nothing changes
+  assert.deepEqual(actionsOf("what voice are you using", s), []);
+});

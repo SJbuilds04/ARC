@@ -10,7 +10,7 @@ ARC is a persistent spatial-computing system: your **phone** is a portable visio
 
 ```powershell
 npm install
-npm run setup        # downloads hand-tracking model, Earth textures, country outlines (served locally)
+npm run setup        # downloads hand-tracking model, textures, country outlines, and JARVIS's voice (Piper + Bryce)
 copy .env.example .env
 # edit .env → GROQ_API_KEY=...
 npm run build
@@ -24,11 +24,9 @@ npm start
 
 Windows will ask to allow Node.js through the firewall the first time — allow it on **private** networks so the phone can connect.
 
-### Enable JARVIS's Groq voice (one-time)
+### JARVIS's voice
 
-JARVIS speaks with Groq's male *Orpheus* voice (`daniel`). Groq requires the org admin to accept the model terms once:
-<https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english>
-Until then ARC automatically uses the best male voice your browser offers (e.g. *Microsoft Ryan/Guy Natural*, *Google UK English Male*, *Daniel*). SYSTEM → VOICE shows which engine is active.
+JARVIS speaks with **Piper**, a neural voice that runs offline on the PC (about 10× faster than real time, even on a 2-core laptop). The default voice is **Bryce**. `npm run setup` installs Piper and Bryce (about 85 MB); if you skip it, ARC downloads them on first start and uses the Windows voice until they're ready. Change or add voices in **SYSTEM → JARVIS VOICE** on the PC or **Settings** on the phone.
 
 ---
 
@@ -196,7 +194,14 @@ ARC/
 * **Which mic listens:** the phone's, whenever the phone is connected. Otherwise the PC's (click or press a key once so the browser allows audio). The command bar says where JARVIS is listening.
 * **Cancelled actions say why:** the timeline shows *Cancelled by voice / touch / gesture*, *No answer — timed out*, or *Replaced by a newer request*, and the server logs it too. Open-hand palm only stops JARVIS talking. It no longer cancels a pending confirmation.
 * Speech-to-text: Groq `whisper-large-v3-turbo`. Common commands are parsed locally (instant, offline-safe); everything else goes to Groq.
-* **JARVIS's voice:** Groq Orpheus when its terms are accepted; otherwise the **Windows voice on the PC** (a British male voice, "George", when installed). Either way it's synthesised on the PC and streamed to the device that speaks. That works reliably on iPhone, where Safari's own speech engine is often silent. The browser voice is only the last fallback.
+* **JARVIS's voice:** **Piper**, offline neural speech on the PC, streamed to the device that speaks (reliable on iPhone, where Safari's own speech is often silent). Common replies are made once and then play instantly. If Piper can't speak, JARVIS falls back to Groq Orpheus (when its terms are accepted), then the Windows voice, then the browser voice, so he's never silent.
+* **Voice library** (SYSTEM → JARVIS VOICE on the PC, Settings on the phone):
+  * **Pick:** ▶ plays a preview of any installed voice on the device you're holding. **USE** makes it JARVIS's voice.
+  * **Add:** pick a voice on the [Piper samples page](https://rhasspy.github.io/piper-samples/), copy the page link and paste it into **Add voice**. A Hugging Face link to a voice folder or `.onnx` file works too, including your own trained voice in your own repo, and so does a name like `en_GB-alan-medium`. Voices only download from Hugging Face.
+  * **Delete:** two taps on the bin. JARVIS's last voice can't be deleted.
+  * **Speed and pitch:** the speed slider changes how fast Piper speaks. Pitch is shifted without changing the tempo.
+  * **JARVIS effect:** an off-to-full slider for a subtle AI shimmer: a presence lift, digital doubling and a short studio reverb. Inside the visor it becomes a tighter in-helmet sound. Loudness stays the same at every setting.
+* **By voice:** *"talk faster / slower"*, *"make your voice deeper / higher"*, *"turn off the voice effect"*, *"reset your voice"*, *"change your voice to Alan"*, *"what voice are you using?"*
 
 ### Things to say
 
@@ -210,6 +215,7 @@ ARC/
 | system info · battery · volume up · next track · type *hello* | "put a car next to the earth and spin both" (Groq) | "explain … in detail" (long answer) |
 | | **Deep Dive:** deep dive the heart · deep dive into my drone · this one / next | turn on AR mode · x-ray view · explode it · make the background black · show me the aorta · show all labels · exit deep dive |
 | | show me the x-ray machine · open the gamma rays · show me a pulsar · open the large hadron collider · deep dive the fusion reactor | pull up everything on radiation · switch model |
+| | | talk faster / slower · make your voice deeper · turn off the voice effect · change your voice to Alan · reset your voice |
 
 ---
 
@@ -260,7 +266,10 @@ Mouse/touch work everywhere too (drag to move, right/shift-drag to rotate, wheel
 | `ARC_AUTO_EXECUTE_LOW_RISK` | `false` | |
 | `ARC_MODELS_DIR` | `ARC/models` | your 3D model library |
 | `ARC_INBOX_DIR` | `Downloads\ARC` | where files sent from the phone land |
-| `ARC_LOCAL_VOICE` | `George` | Windows voice used when Groq's isn't available (`off` to disable) |
+| `ARC_VOICE` | `en_US-bryce-medium` | JARVIS's voice until another is picked in Settings |
+| `ARC_VOICES_DIR` | `ARC/voices` | installed Piper voices (`.onnx` + `.onnx.json`) |
+| `ARC_PIPER_DIR` | `ARC/vendor/piper` | the Piper engine |
+| `ARC_LOCAL_VOICE` | `George` | Windows backup voice when Piper can't speak (`off` to disable) |
 
 > Groq's free tier limits `qwen3.8-27b` to ~7,000 input tokens/minute (≈5 open-ended questions per minute). ARC falls back to the gpt-oss models automatically; local commands don't use tokens at all.
 
@@ -268,7 +277,7 @@ Mouse/touch work everywhere too (drag to move, right/shift-drag to rotate, wheel
 
 | | |
 |---|---|
-| `npm run setup` | Fetch runtime assets into `client/public` (safe to re-run) |
+| `npm run setup` | Fetch runtime assets into `client/public`, and install Piper + the default voice (safe to re-run) |
 | `npm run build` | Build the client |
 | `npm start` | Run ARC |
 | `npm run dev` | Rebuild client + restart server on change |
@@ -277,12 +286,12 @@ Mouse/touch work everywhere too (drag to move, right/shift-drag to rotate, wheel
 
 ## Troubleshooting
 
-* **JARVIS silent on the iPhone** — tap ENGAGE ARC once (iOS only allows audio after a tap), check the ring/silent switch, and look at Settings › VOICE: it should say WINDOWS · GEORGE or GROQ.
+* **JARVIS silent on the iPhone** — tap ENGAGE ARC once (iOS only allows audio after a tap), check the ring/silent switch, and look at Settings › VOICE: it should say PIPER · BRYCE (or WINDOWS · BACKUP).
 * **A model won't load** — prefer `.glb`. A `.gltf` that references separate `.bin`/texture files can't be uploaded as a single file; export it as `.glb` instead.
 * **Phone can't connect** — same Wi‑Fi? Allow Node.js in Windows Firewall (private). Use one of the LAN addresses printed at startup. Some guest/office networks block device-to-device traffic.
 * **Camera / mic blocked on phone** — the page must be opened via `https://`; accept the certificate warning, then allow permissions. iOS: Safari only.
 * **"ARC was opened in another tab"** — one console per role; press *USE ARC HERE* to take over.
-* **JARVIS uses the browser voice** — accept the Orpheus terms (see above).
+* **JARVIS uses the Windows or browser voice** — Piper isn't installed yet: run `npm run setup` (or wait for the first-start download), then check SYSTEM → JARVIS VOICE.
 * **Hand tracking slow** — good light helps; MediaPipe uses the GPU when available and falls back to CPU.
 * **VISOR laggy on the PC** — check the perf line. `CAM 15` means the webcam is light-starved (more light helps). `CPU` means no GPU path. Low-end laptops (2-core CPUs with integrated graphics) are the real limit, so connect the phone and VISOR moves there.
 * **ARC opens in Command mode** after every server start. That's deliberate.
@@ -299,3 +308,4 @@ Mouse/touch work everywhere too (drag to move, right/shift-drag to rotate, wheel
 * Planet, Sun, Moon, ring and Milky Way textures: © [Solar System Scope](https://www.solarsystemscope.com/textures/), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 * Earth textures: three.js examples (NASA imagery). Country outlines: Natural Earth (public domain).
 * Hand / face tracking: Google MediaPipe Tasks (Apache 2.0).
+* JARVIS's voice: [Piper](https://github.com/rhasspy/piper) by Michael Hansen / Open Home Foundation (MIT), downloaded as a separate program next to ARC. Its engine bundles [eSpeak NG](https://github.com/espeak-ng/espeak-ng) (GPL-3.0) for pronunciation. Default voice "Bryce" ([rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices), dataset public domain). Voices you add keep their own licences: check the model card before using one commercially.

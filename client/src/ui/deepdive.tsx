@@ -83,7 +83,24 @@ export const HOLO_SWATCHES = [
 ];
 
 /** A range slider that updates live locally and sends to ARC at most ~12×/s. */
-function LiveSlider({ value, min, max, step, onCommit, label }: { value: number; min: number; max: number; step: number; onCommit: (v: number) => void; label: string }) {
+export function LiveSlider({
+  value,
+  min,
+  max,
+  step,
+  onCommit,
+  label,
+  format,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onCommit: (v: number) => void;
+  label: string;
+  /** How the value reads (default: percent of the range). */
+  format?: (v: number) => string;
+}) {
   const [local, setLocal] = useState(value);
   const dragging = useRef(false);
   const timer = useRef<number | null>(null);
@@ -113,7 +130,7 @@ function LiveSlider({ value, min, max, step, onCommit, label }: { value: number;
         onPointerUp={() => (dragging.current = false)}
         onChange={(e) => push(Number(e.target.value))}
       />
-      <b>{Math.round(((local - min) / (max - min)) * 100)}%</b>
+      <b>{format ? format(local) : `${Math.round(((local - min) / (max - min)) * 100)}%`}</b>
     </label>
   );
 }

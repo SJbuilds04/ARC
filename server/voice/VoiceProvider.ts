@@ -1,6 +1,15 @@
 import { AIError } from "../ai/AIProvider";
 import { groqError, groqFetch } from "../ai/GroqProvider";
 
+/** Synthesized speech. `rate` is the playback rate it was timed for (pitch; 1 = as is). */
+export interface Synthesis {
+  mime: string;
+  data: Buffer;
+  rate?: number;
+}
+
+export type VoiceEngine = "PIPER" | "GROQ" | "LOCAL";
+
 /**
  * Text-to-speech, decoupled from JARVIS and the UI. When no server voice is
  * available the client falls back to the browser's male system voice.
@@ -10,8 +19,55 @@ export interface VoiceProvider {
   readonly available: boolean;
   readonly unavailableReason?: string;
   /** Which engine is speaking right now (for the status HUD). */
-  readonly engine?: "GROQ" | "LOCAL";
-  synthesize(text: string): Promise<{ mime: string; data: Buffer }>;
+  readonly engine?: VoiceEngine;
+  /** The voice speaking right now ("Bryce"), when the engine has named voices. */
+  readonly voiceName?: string;
+  synthesize(text: string): Promise<Synthesis>;
+}
+
+/**
+ * Voices in order of preference: the first available one speaks, and when it fails on a chunk
+ * the next one says it instead (Piper → Groq → Windows), so JARVIS is never silent.
+ */
+export class VoiceChain implements VoiceProvider {
+  constructor(private readonly providers: VoiceProvider[]) {}
+
+  private get first(): VoiceProvider | undefined {
+    return this.providers.find((p) => p.available);
+  }
+
+  get name(): string {
+    return this.first?.name ?? "none";
+  }
+
+  get available(): boolean {
+    return this.first !== undefined;
+  }
+
+  get unavailableReason(): string | undefined {
+    return this.available ? undefined : this.providers.map((p) => p.unavailableReason).filter(Boolean).join("; ");
+  }
+
+  get engine(): VoiceEngine {
+    return this.first?.engine ?? "LOCAL";
+  }
+
+  get voiceName(): string | undefined {
+    return this.first?.voiceName;
+  }
+
+  async synthesize(text: string): Promise<Synthesis> {
+    let last: unknown = new Error("No voice available");
+    for (const p of this.providers) {
+      if (!p.available) continue;
+      try {
+        return await p.synthesize(text);
+      } catch (err) {
+        last = err;
+      }
+    }
+    throw last;
+  }
 }
 
 /** JARVIS's male voice via Groq (Orpheus). */
@@ -36,7 +92,7 @@ export class GroqVoice implements VoiceProvider {
     return this.disabledReason;
   }
 
-  async synthesize(text: string): Promise<{ mime: string; data: Buffer }> {
+  async synthesize(text: string): Promise<Synthesis> {
     if (this.disabledReason) throw new AIError(this.disabledReason, "UNCONFIGURED");
     const res = await groqFetch(
       this.apiKey,

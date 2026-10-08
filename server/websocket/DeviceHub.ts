@@ -9,6 +9,7 @@ import type { ArcCore } from "../core/ArcCore";
 import type { PairingRegistry } from "../security/pairing";
 import type { ModelLibrary } from "../library/ModelLibrary";
 import type { Jarvis, Outbound } from "../jarvis/Jarvis";
+import type { VoiceService } from "../voice/VoiceService";
 import { config, lanAddresses } from "../config";
 import { allowedOrigin, isLoopback } from "../http/origin";
 import { memoryUsage, sampleCpu } from "../actions/system";
@@ -39,6 +40,7 @@ export class DeviceHub implements Outbound {
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: 10 * 1024 * 1024, perMessageDeflate: false });
   private readonly clients = new Set<Client>();
   private jarvis: Jarvis | null = null;
+  private voices: VoiceService | null = null;
 
   constructor(
     server: Server,
@@ -60,8 +62,9 @@ export class DeviceHub implements Outbound {
     setInterval(() => this.broadcast({ type: "TELEMETRY", cpu: sampleCpu(), memory: memoryUsage(), uptime: os.uptime(), t: Date.now() }), 3000).unref();
   }
 
-  attach(jarvis: Jarvis): void {
+  attach(jarvis: Jarvis, voices?: VoiceService): void {
     this.jarvis = jarvis;
+    this.voices = voices ?? null;
   }
 
   // ─── Outbound ───
@@ -305,6 +308,15 @@ export class DeviceHub implements Outbound {
         return;
       case "MODEL_RENAME":
         this.library.rename(msg.model, msg.name);
+        return;
+      case "VOICE_PREVIEW":
+        void this.voices?.preview(role, msg.voice);
+        return;
+      case "VOICE_ADD":
+        void this.voices?.add(msg.source, role);
+        return;
+      case "VOICE_DELETE":
+        void this.voices?.remove(msg.voice, role);
         return;
       case "HELLO":
         return;

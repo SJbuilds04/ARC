@@ -19,6 +19,7 @@ import type {
   ServiceInfo,
   VisionSourceState,
   VisorState,
+  VoiceState,
 } from "../../shared/types";
 
 const HISTORY_LIMIT = 100;
@@ -34,7 +35,12 @@ interface PersistedSession {
   /** Deep Dive look, remembered per model. */
   deepDivePrefs?: Record<string, DeepDiveSettings>;
   brightness?: number;
+  voice?: Pick<VoiceState, "id" | "speed" | "pitch" | "fx">;
 }
+
+/** JARVIS's voice until it's changed: Bryce, normal speed and pitch, a medium JARVIS effect. */
+const VOICE_DEFAULTS = { speed: 1, pitch: 0, fx: 0.5 };
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 export const DEEP_DIVE_DEFAULTS: DeepDiveSettings = {
   ar: false,
@@ -108,6 +114,7 @@ export class ArcCore extends EventEmitter<CoreEvents> {
       deepDive: { active: false, modelId: null, modelName: null, settings: { ...DEEP_DIVE_DEFAULTS }, parts: [], focusPart: null, collection: null, actions: [] },
       // Brightness starts minimal: coloured models and holograms glow less.
       settings: { autoExecuteLowRisk: config.autoExecuteLowRisk, brightness: this.session.brightness ?? 0.3 },
+      voice: { id: config.defaultVoice, ...VOICE_DEFAULTS, ...this.session.voice, voices: [], engineReady: false, download: null },
       // The visor never survives a restart (its device has to re-open it).
       visor: { ...this.session.visor, device: null, status: { ...VISOR_STATUS_OFF } },
     };
@@ -412,6 +419,26 @@ export class ArcCore extends EventEmitter<CoreEvents> {
     this.state.settings.brightness = Math.max(0, Math.min(1, value));
     this.session.brightness = this.state.settings.brightness;
     this.persist();
+    this.changed();
+  }
+
+  /** Pick JARVIS's voice and how it sounds (only the fields given change). */
+  setVoice(patch: Partial<Pick<VoiceState, "id" | "speed" | "pitch" | "fx">>): void {
+    const v = this.state.voice;
+    if (patch.id) v.id = patch.id;
+    if (patch.speed !== undefined) v.speed = Math.round(clamp(patch.speed, 0.6, 1.6) * 100) / 100;
+    if (patch.pitch !== undefined) v.pitch = Math.round(clamp(patch.pitch, -4, 4) * 10) / 10;
+    if (patch.fx !== undefined) v.fx = Math.round(clamp(patch.fx, 0, 1) * 100) / 100;
+    this.session.voice = { id: v.id, speed: v.speed, pitch: v.pitch, fx: v.fx };
+    this.persist();
+    this.changed();
+  }
+
+  /** The installed voices, whether Piper is installed, and any download in progress. */
+  setVoiceLibrary(lib: Pick<VoiceState, "voices" | "engineReady" | "download">): void {
+    const v = this.state.voice;
+    if (JSON.stringify([v.voices, v.engineReady, v.download]) === JSON.stringify([lib.voices, lib.engineReady, lib.download])) return;
+    Object.assign(v, lib);
     this.changed();
   }
 

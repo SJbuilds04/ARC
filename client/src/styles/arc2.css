@@ -1308,3 +1308,231 @@ body:has(.desktop.is-diving .dd-panel) .notices {
   background: rgba(170, 24, 36, 0.92);
   color: #fff;
 }
+
+/* ── JARVIS VOICE (System on the PC, Settings on the phone) ── */
+.voice-now {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(120, 205, 255, 0.22);
+  background: linear-gradient(90deg, rgba(40, 130, 180, 0.2), rgba(4, 16, 30, 0.5));
+}
+.voice-now__label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--text-dim);
+}
+.voice-now__name {
+  font-family: var(--font-mark);
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  color: #fff;
+}
+.voice-now__test {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 11px;
+}
+.voice-list {
+  display: grid;
+  gap: 6px;
+  max-height: 268px;
+  margin-bottom: 10px;
+  overflow-y: auto;
+}
+.voice-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(120, 205, 255, 0.14);
+  background: rgba(4, 16, 30, 0.55);
+}
+.voice-row.is-on {
+  border-color: rgba(95, 216, 255, 0.6);
+  box-shadow: inset 3px 0 0 var(--cyan);
+}
+.voice-row__play {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(120, 205, 255, 0.4);
+  color: var(--cyan);
+}
+.voice-row__play:hover {
+  background: rgba(40, 130, 180, 0.32);
+  box-shadow: 0 0 10px rgba(95, 216, 255, 0.35);
+}
+.voice-row__info {
+  min-width: 0;
+}
+.voice-row__info b {
+  display: block;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+.voice-row__info span {
+  display: block;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.voice-row__tag {
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--cyan);
+}
+.voice-row__btn {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text);
+  border: 1px solid rgba(120, 205, 255, 0.35);
+  background: rgba(40, 130, 180, 0.15);
+}
+.voice-row__btn:hover {
+  border-color: var(--cyan);
+}
+.voice-row__btn--icon {
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  color: var(--text-dim);
+}
+.voice-row__btn--icon:hover {
+  color: #ff9a9a;
+  border-color: rgba(255, 90, 90, 0.5);
+}
+.voice-row__btn--confirm {
+  color: #ffc2c2;
+  border-color: var(--bad);
+  background: rgba(120, 20, 30, 0.4);
+}
+.voice-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.voice-add input {
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: #fff;
+  border: 1px solid rgba(120, 205, 255, 0.25);
+  background: rgba(2, 10, 20, 0.7);
+}
+.voice-add input:focus {
+  outline: none;
+  border-color: var(--cyan);
+}
+.voice-add .btn {
+  min-height: 40px;
+  padding: 0 16px;
+  font-size: 11px;
+}
+.voice-add .btn:disabled {
+  opacity: 0.45;
+}
+.voice-dl {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 7px 9px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text);
+  border: 1px solid rgba(120, 205, 255, 0.2);
+}
+.voice-dl b {
+  font-family: var(--font-mono);
+}
+.voice-dl i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+  transition: width 0.25s;
+}
+.voice-dl.is-error {
+  justify-content: flex-start;
+  align-items: center;
+  letter-spacing: 0.02em;
+  color: #ffc2c2;
+  border-color: rgba(255, 84, 104, 0.45);
+}
+.voice-hint {
+  margin: 2px 0 12px;
+  line-height: 1.45;
+}
+.voice-hint a {
+  color: var(--cyan);
+}
+.voice-hint code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+.voice-sliders {
+  display: grid;
+  gap: 2px;
+}
+.voice-sliders .dd-slider {
+  grid-template-columns: 62px minmax(0, 1fr) 46px;
+}
+.voice-reset {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+}
+.voice-reset:hover {
+  color: var(--cyan);
+}
+.ph .voice-row {
+  grid-template-columns: 40px minmax(0, 1fr) auto auto;
+  padding: 8px;
+}
+.ph .voice-row__play {
+  width: 40px;
+  height: 40px;
+}
+.ph .voice-row__btn {
+  min-height: 38px;
+}
+.ph .voice-sliders .dd-slider input {
+  height: 40px;
+}
+
+/* the right column scrolls (System page with the voice panel): show it */
+.console__side {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(95, 216, 255, 0.35) transparent;
+}

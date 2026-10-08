@@ -4,8 +4,11 @@ import { ArcCore } from "./core/ArcCore";
 import { PairingRegistry } from "./security/pairing";
 import { loadOrCreateCertificate } from "./security/certs";
 import { GroqProvider, groqFetch } from "./ai/GroqProvider";
-import { GroqVoice } from "./voice/VoiceProvider";
-import { LocalVoice, VoiceChain } from "./voice/LocalVoice";
+import { GroqVoice, VoiceChain } from "./voice/VoiceProvider";
+import { LocalVoice } from "./voice/LocalVoice";
+import { PiperVoice } from "./voice/PiperVoice";
+import { VoiceLibrary } from "./voice/VoiceLibrary";
+import { VoiceService } from "./voice/VoiceService";
 import { ActionExecutor } from "./actions/ActionExecutor";
 import { DeviceHub } from "./websocket/DeviceHub";
 import { Jarvis } from "./jarvis/Jarvis";
@@ -22,9 +25,12 @@ async function main() {
   const core = new ArcCore();
   const pairing = new PairingRegistry();
   const groq = new GroqProvider(config.groq.apiKey, config.groq.models, config.groq.sttModel);
+  // JARVIS's voice: Piper (offline neural, the voice picked in Settings) → Groq → the Windows voice.
+  const voices = new VoiceLibrary(config.voicesDir, config.piperDir);
+  const piper = new PiperVoice(voices, () => core.getState().voice);
   const localVoice = new LocalVoice(config.localVoice);
   localVoice.warm();
-  const voice = new VoiceChain(new GroqVoice(config.groq.apiKey, config.groq.ttsModel, config.groq.ttsVoice), localVoice);
+  const voice = new VoiceChain([piper, new GroqVoice(config.groq.apiKey, config.groq.ttsModel, config.groq.ttsVoice), localVoice]);
   const executor = new ActionExecutor();
   const library = new ModelLibrary();
   const syncLibrary = () => core.setLibrary(library.models, library.thumbs());
@@ -38,7 +44,9 @@ async function main() {
   });
   const hub = new DeviceHub(server, core, pairing, library);
   const jarvis = new Jarvis(core, groq, groq, voice, executor, hub, library);
-  hub.attach(jarvis);
+  const voiceService = new VoiceService(core, voices, piper, hub, config.defaultVoice);
+  hub.attach(jarvis, voiceService);
+  void voiceService.boot();
   api = createApi({ library, pairing, onReceived: (info, from) => jarvis.fileReceived(info, from) });
 
   server.listen(config.port, "0.0.0.0", () => {
@@ -50,6 +58,7 @@ async function main() {
     console.log(`  Groq         ${config.groq.apiKey ? `configured · ${config.groq.models[0]}` : "NOT CONFIGURED — set GROQ_API_KEY in .env"}`);
     console.log(`  File access  ${config.fileRoots.join(" | ")}`);
     console.log(`  Models       ${library.dir} (${library.models.length})`);
+    console.log(`  Voice        ${voices.engineReady ? `Piper · ${voices.files(core.getState().voice.id)?.name ?? core.getState().voice.id}` : "Piper not installed yet — downloading (or run npm run setup)"} (${voices.voices.length} voice${voices.voices.length === 1 ? "" : "s"})`);
     console.log("");
   });
 
@@ -64,6 +73,7 @@ async function main() {
     core.shutdown();
     library.flush();
     localVoice.stop();
+    piper.stop();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);

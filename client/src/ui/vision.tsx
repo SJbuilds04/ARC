@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useArc } from "../core/store";
 import { gestures, vision } from "../core/services";
 import { StatusRow, toneFor } from "./primitives";
+import { voiceEngineLabel } from "./voice";
 
 const CONNECTIONS = [
   [0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12],
@@ -91,7 +92,7 @@ export function StatusHud({ compact = false }: { compact?: boolean }) {
       <StatusRow label="CAMERA" value={`${src}${srcState.hands ? ` · ${srcState.hands} HAND${srcState.hands > 1 ? "S" : ""}` : ""}`} />
       <StatusRow label="GESTURES" value={local.trackerReady ? (local.gesture !== "NONE" && tracking ? local.gesture.replace("_", " ") : "READY") : "LOADING"} tone={local.trackerReady ? "ok" : "warn"} />
       <StatusRow label="GROQ" value={ai.status === "ONLINE" ? (ai.latencyMs ? `${ai.latencyMs} ms` : "CONNECTED") : ai.status} tone={toneFor(ai.status)} />
-      {!compact && <StatusRow label="VOICE" value={s.services.voice.engine === "GROQ" ? "GROQ · MALE" : s.services.voice.engine === "LOCAL" ? "WINDOWS · MALE" : "BROWSER · MALE"} tone={s.services.voice.engine === "BROWSER" ? "warn" : "ok"} />}
+      {!compact && <StatusRow label="VOICE" value={voiceEngineLabel(s.services.voice.engine, s.services.voice.voiceName)} tone={s.services.voice.engine === "BROWSER" ? "warn" : "ok"} />}
       <StatusRow label={role === "PC" ? "PHONE" : "DESKTOP"} value={(role === "PC" ? s.devices.PHONE : s.devices.PC).connected ? "CONNECTED" : "OFFLINE"} tone={(role === "PC" ? s.devices.PHONE : s.devices.PC).connected ? "ok" : "off"} />
       <StatusRow label="LATENCY" value={conn.latencyMs !== undefined ? `${conn.latencyMs} ms` : "—"} />
       {fps !== null && <StatusRow label="FPS" value={fps || "—"} />}

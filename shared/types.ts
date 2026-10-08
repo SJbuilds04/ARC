@@ -178,7 +178,7 @@ export interface ArcState {
     jarvis: ServiceInfo;
     ai: ServiceInfo & { model?: string; latencyMs?: number };
     stt: ServiceInfo;
-    voice: ServiceInfo & { engine: "GROQ" | "LOCAL" | "BROWSER"; voiceName?: string };
+    voice: ServiceInfo & { engine: "PIPER" | "GROQ" | "LOCAL" | "BROWSER"; voiceName?: string };
     desktop: ServiceInfo & { platform: string };
   };
   jarvis: { activity: JarvisActivity; armedUntil: number };
@@ -191,7 +191,36 @@ export interface ArcState {
   thumbs: Record<string, string>;
   deepDive: DeepDiveState;
   settings: { autoExecuteLowRisk: boolean; brightness: number };
+  voice: VoiceState;
   visor: VisorState;
+}
+
+/** An installed JARVIS voice (a Piper voice file in the voices folder). */
+export interface VoiceInfo {
+  /** File key, e.g. "en_US-bryce-medium". */
+  id: string;
+  name: string;
+  /** "English (United States)" */
+  language: string;
+  quality: string;
+  speakers: number;
+  sizeMb: number;
+}
+
+export interface VoiceState {
+  /** The voice JARVIS speaks with. */
+  id: string;
+  /** 1 = normal, higher = faster. */
+  speed: number;
+  /** Semitones; negative = deeper. */
+  pitch: number;
+  /** JARVIS effect 0..1, applied on the device that speaks (stronger inside the visor). */
+  fx: number;
+  voices: VoiceInfo[];
+  /** The Piper engine is installed on this PC. */
+  engineReady: boolean;
+  /** "Add voice" in progress (0..1), or the last error. */
+  download: { label: string; progress: number; error?: string } | null;
 }
 
 /** Persistent VISOR state (server-side summary; high-rate gaze data stays on the device). */
@@ -245,10 +274,14 @@ export type ServerMessage =
       last: boolean;
       mime?: string;
       data?: string;
+      /** Playback rate (pitch): the server already slowed or sped the speech to match, so the tempo stays right. */
+      rate?: number;
       /** Server voice failed for this chunk: the client speaks `fallbackText` with the browser voice. */
       failed?: boolean;
       fallbackText?: string;
     }
+  /** A voice preview, played on the device that asked for it. */
+  | { type: "VOICE_SAMPLE"; voice: string; mime: string; data: string; rate: number }
   | { type: "CONFIRM_REQUEST"; pending: PendingAction }
   | { type: "CONFIRM_RESOLVED"; id: string; approved: boolean }
   | { type: "ACTION_STATUS"; execution: ExecutionRecord }

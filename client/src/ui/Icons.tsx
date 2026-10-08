@@ -119,6 +119,16 @@ export const Icon = {
       <path d="M6 6l12 12M18 6 6 18" />
     </svg>
   ),
+  Play: (p: P) => (
+    <svg {...base(p)}>
+      <path d="M8 5.5v13l10.5-6.5z" />
+    </svg>
+  ),
+  Wave: (p: P) => (
+    <svg {...base(p)}>
+      <path d="M3 12h1.5M7 8.5v7M10.5 5v14M14 8v8M17.5 10v4M21 12h-1" />
+    </svg>
+  ),
   Check: (p: P) => (
     <svg {...base(p)}>
       <path d="M4.5 12.5 9.5 17.5 19.5 6.5" />

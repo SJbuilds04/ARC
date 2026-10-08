@@ -5,6 +5,7 @@ import { Panel, StatusRow } from "../primitives";
 import { Icon } from "../Icons";
 import { StatusHud } from "../vision";
 import { BrightnessControl } from "../deepdive";
+import { VoicePanel, voiceEngineLabel } from "../voice";
 
 export function VisorTab() {
   const visorDevice = useArc((s) => s.state?.visor.device ?? null);
@@ -48,8 +49,9 @@ export function SettingsTab() {
           <i />
         </button>
         <StatusRow label="MIC" value={local.mic === "error" ? (local.micError ?? "ERROR") : local.mic.toUpperCase()} tone={local.mic === "error" ? "bad" : local.mic === "off" ? "off" : "ok"} />
-        <StatusRow label="VOICE" value={voice?.engine === "GROQ" ? "GROQ · MALE" : voice?.engine === "LOCAL" ? "WINDOWS · GEORGE" : "BROWSER"} tone={voice?.engine === "BROWSER" ? "warn" : "ok"} />
+        <StatusRow label="VOICE" value={voiceEngineLabel(voice?.engine, voice?.voiceName)} tone={voice?.engine === "BROWSER" ? "warn" : "ok"} />
       </Panel>
+      <VoicePanel className="ph-card" />
       <Panel title="CAMERA" className="ph-card">
         <button
           className={`toggle ${s?.vision.phoneHands ? "is-on" : ""}`}

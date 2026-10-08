@@ -230,5 +230,5 @@ void vision.preload().catch(() => undefined);
 
 // Test hook (only with ?debug=1): lets automated UI tests inject hand frames.
 if (new URLSearchParams(location.search).has("debug")) {
-  (window as unknown as { __arc: unknown }).__arc = { gestures, visor, playground, arc, deepDive, store: useArc };
+  (window as unknown as { __arc: unknown }).__arc = { gestures, visor, playground, arc, deepDive, voiceOut, store: useArc };
 }

@@ -60,6 +60,14 @@ export const SystemActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("SET_BRIGHTNESS"), value: z.number().min(0).max(1) }),
   /** Phone hand tracking (off by default — the phone is touch-first). */
   z.object({ action: z.literal("SET_PHONE_HANDS"), enabled: z.boolean() }),
+  /** JARVIS's voice: which voice, speed (1 = normal), pitch (semitones), JARVIS effect (0..1). Only the fields that change. */
+  z.object({
+    action: z.literal("SET_VOICE"),
+    voice: text(80).optional(),
+    speed: z.number().min(0.6).max(1.6).optional(),
+    pitch: z.number().min(-4).max(4).optional(),
+    fx: z.number().min(0).max(1).optional(),
+  }),
 ]);
 
 // ─── Playground actions (executed by the 3D engine on the PC display) ───
@@ -235,6 +243,10 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("LABEL_REMOVE"), model: z.string().max(80), id: z.string().max(40) }),
   z.object({ type: z.literal("MODEL_DELETE"), model: z.string().max(80) }),
   z.object({ type: z.literal("MODEL_RENAME"), model: z.string().max(80), name: z.string().trim().min(1).max(60) }),
+  /** JARVIS voice library: hear a voice on this device, add one from a link or name, delete one. */
+  z.object({ type: z.literal("VOICE_PREVIEW"), voice: z.string().max(80).optional() }),
+  z.object({ type: z.literal("VOICE_ADD"), source: z.string().trim().min(2).max(500) }),
+  z.object({ type: z.literal("VOICE_DELETE"), voice: z.string().max(80) }),
   // Summary of visor tracking (state changes only — gaze coordinates never leave the device).
   z.object({
     type: z.literal("VISOR_STATUS"),

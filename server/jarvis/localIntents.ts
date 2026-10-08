@@ -1,6 +1,7 @@
 import { catalogEntry, collectionOf, resolveCatalogId, resolveCollection, resolveCountry } from "../../shared/catalog";
 import type { ArcAction, ArcState } from "../../shared/types";
 import { resolveColor } from "./colors";
+import { findVoice } from "../voice/piperVoices";
 
 /**
  * Deterministic fast path for frequent commands. High-confidence patterns only —
@@ -192,6 +193,28 @@ export function parseLocalIntent(raw: string, state: ArcState): LocalIntent | nu
     return reply("Brighter, boss.", { action: "SET_BRIGHTNESS", value: Math.min(1, state.settings.brightness + 0.2) });
   if (/^(dimmer|darker|brightness down|decrease( the)? brightness|dim( the)? (lights|scene|it)|turn down the (lights|brightness)|less light|make it (dimmer|darker))$/.test(t))
     return reply("Dimmer, boss.", { action: "SET_BRIGHTNESS", value: Math.max(0, state.settings.brightness - 0.2) });
+
+  // ── JARVIS's own voice: faster / deeper / effect / which voice ──
+  const voice = state.voice;
+  if (voice) {
+    const step = (v: number, d: number, lo: number, hi: number) => Math.round(Math.max(lo, Math.min(hi, v + d)) * 100) / 100;
+    if (/^(talk|speak) (a (bit|little) )?faster$|^speed up your voice$/.test(t)) return reply("Picking up the pace, boss.", { action: "SET_VOICE", speed: step(voice.speed, 0.1, 0.6, 1.6) });
+    if (/^(talk|speak) (a (bit|little) )?slower$|^slow (down )?your voice$/.test(t)) return reply("Slowing down, boss.", { action: "SET_VOICE", speed: step(voice.speed, -0.1, 0.6, 1.6) });
+    if (/^(make your voice|talk|speak) (a (bit|little) )?(deeper|lower)$|^lower your (voice|pitch)$/.test(t)) return reply("Deeper, boss.", { action: "SET_VOICE", pitch: step(voice.pitch, -1, -4, 4) });
+    if (/^(make your voice|talk|speak) (a (bit|little) )?higher$|^raise your (voice|pitch)$/.test(t)) return reply("Higher, boss.", { action: "SET_VOICE", pitch: step(voice.pitch, 1, -4, 4) });
+    if (/^(turn on|enable|add|switch on) (the |your )?(voice|jarvis|audio) effects?$/.test(t)) return reply("Effect on, boss.", { action: "SET_VOICE", fx: voice.fx > 0.05 ? voice.fx : 0.5 });
+    if (/^(turn off|disable|remove|switch off) (the |your )?(voice|jarvis|audio) effects?$/.test(t)) return reply("Effect off, boss.", { action: "SET_VOICE", fx: 0 });
+    if (/^(reset your voice|talk normally|normal voice)$/.test(t)) return reply("Back to normal, boss.", { action: "SET_VOICE", speed: 1, pitch: 0 });
+    if (/^(what|which) voice (are you using|is this)$|^what('s| is) your voice( called)?$/.test(t)) {
+      const name = voice.voices.find((v) => v.id === voice.id)?.name;
+      return reply(name ? `I'm speaking with the ${name} voice, boss.` : "My usual voice, boss.");
+    }
+    const named = t.match(/^(?:change|switch|set) (?:your|the|jarvis'?s?) voice to (?:the )?(.+?)(?: voice)?$/) ?? t.match(/^use (?:the )?(.+?) voice$/);
+    if (named) {
+      const v = findVoice(voice.voices, named[1]);
+      return v ? reply(`Switching to ${v.name}, boss.`, { action: "SET_VOICE", voice: v.id }) : reply(`I don't have a voice called ${named[1]} installed, boss. You can add one in Settings.`);
+    }
+  }
 
   // ── Model actions on the Deep Dive stage: open the faceplate, power up the reactor, paint it gold ──
   if (state.deepDive.active && state.deepDive.actions.length) {

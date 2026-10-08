@@ -37,7 +37,13 @@ export const config = {
   modelsDir: env("ARC_MODELS_DIR") ? path.resolve(env("ARC_MODELS_DIR")) : path.join(ROOT, "models"),
   /** Where files sent from the phone land (anything that isn't a 3D model). */
   inboxDir: env("ARC_INBOX_DIR") ? path.resolve(env("ARC_INBOX_DIR")) : path.join(home, "Downloads", "ARC"),
-  /** Offline JARVIS voice (Windows speech) used when the Groq voice is unavailable. "off" disables it. */
+  /** Piper speech engine — JARVIS's voice. Installed by `npm run setup` (or on first start). */
+  piperDir: env("ARC_PIPER_DIR") ? path.resolve(env("ARC_PIPER_DIR")) : path.join(ROOT, "vendor", "piper"),
+  /** JARVIS's voices: Piper .onnx + .onnx.json pairs (add more from Settings → JARVIS VOICE). */
+  voicesDir: env("ARC_VOICES_DIR") ? path.resolve(env("ARC_VOICES_DIR")) : path.join(ROOT, "voices"),
+  /** The voice JARVIS starts with until another is picked in Settings. */
+  defaultVoice: env("ARC_VOICE", "en_US-bryce-medium"),
+  /** Backup voice (Windows speech) when Piper can't speak. "off" disables it. */
   localVoice: env("ARC_LOCAL_VOICE", "George"),
   autoExecuteLowRisk: env("ARC_AUTO_EXECUTE_LOW_RISK", "false").toLowerCase() === "true",
   clientDist: path.join(ROOT, "client", "dist"),

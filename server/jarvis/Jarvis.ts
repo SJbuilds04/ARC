@@ -14,6 +14,7 @@ import type { ModelLibrary } from "../library/ModelLibrary";
 import type { Received } from "../http/api";
 import { setClipboard } from "../actions/clipboard";
 import { resolveColor } from "./colors";
+import { findVoice } from "../voice/piperVoices";
 
 /** How JARVIS talks to devices — implemented by the DeviceHub, so JARVIS never touches sockets. */
 export interface Outbound {
@@ -59,14 +60,17 @@ export class Jarvis {
     private readonly library: ModelLibrary,
   ) {
     this.reportVoice();
+    // a voice picked, installed or deleted shows up in the HUD straight away
+    core.on("state", () => this.reportVoice());
   }
 
   /** Reflect which voice engine is live in the status HUD. */
   private reportVoice(): void {
     const v = this.voice;
-    if (!v.available) this.core.setService("voice", { status: "DEGRADED", engine: "BROWSER", detail: v.unavailableReason });
-    else if (v.engine === "LOCAL") this.core.setService("voice", { status: "ONLINE", engine: "LOCAL", detail: "Windows voice (Groq voice unavailable)" });
-    else this.core.setService("voice", { status: "ONLINE", engine: "GROQ", detail: undefined });
+    if (!v.available) this.core.setService("voice", { status: "DEGRADED", engine: "BROWSER", voiceName: undefined, detail: v.unavailableReason });
+    else if (v.engine === "PIPER") this.core.setService("voice", { status: "ONLINE", engine: "PIPER", voiceName: v.voiceName, detail: undefined });
+    else if (v.engine === "LOCAL") this.core.setService("voice", { status: "ONLINE", engine: "LOCAL", voiceName: undefined, detail: "Windows voice (Piper unavailable)" });
+    else this.core.setService("voice", { status: "ONLINE", engine: "GROQ", voiceName: undefined, detail: undefined });
   }
 
   // ─── Inputs ───
@@ -356,6 +360,7 @@ export class Jarvis {
         else if (action.action === "SET_GAZE") this.core.setGazeInPlayground(action.enabled);
         else if (action.action === "SET_PHONE_HANDS") this.core.setPhoneHands(action.enabled);
         else if (action.action === "SET_BRIGHTNESS") this.core.setBrightness(action.value);
+        else if (action.action === "SET_VOICE") this.setVoice(action);
         else if (action.action === "RECALIBRATE_GAZE") this.recalibrateGaze();
         else if (action.action === "DEEP_DIVE" || action.action === "DEEP_DIVE_SET" || action.action === "FOCUS_PART" || action.action === "MODEL_ACTION") {
           if (!this.out.isConnected("PC")) {
@@ -496,6 +501,20 @@ export class Jarvis {
     if (audio === "server") void this.speak(id, text, primary);
   }
 
+  /** "Change your voice to Alan", "talk faster", "turn off the voice effect". */
+  private setVoice(a: Extract<ArcAction, { action: "SET_VOICE" }>): void {
+    let id: string | undefined;
+    if (a.voice) {
+      const v = findVoice(this.core.getState().voice.voices, a.voice);
+      if (!v) {
+        this.respond(`I don't have a voice called ${a.voice} installed, boss. You can add one in Settings.`, undefined, true);
+        return;
+      }
+      id = v.id;
+    }
+    this.core.setVoice({ id, speed: a.speed, pitch: a.pitch, fx: a.fx });
+  }
+
   private async speak(id: string, text: string, device: DeviceRole): Promise<void> {
     const generation = ++this.speechGeneration;
     const chunks = chunkForSpeech(text).slice(0, 12);
@@ -506,9 +525,9 @@ export class Jarvis {
     for (let seq = 0; seq < chunks.length; seq++) {
       const last = seq === chunks.length - 1;
       try {
-        const { mime, data } = await jobs[seq];
+        const { mime, data, rate } = await jobs[seq];
         if (generation !== this.speechGeneration) return;
-        this.out.sendTo(device, { type: "JARVIS_AUDIO", id, seq, last, mime, data: data.toString("base64") });
+        this.out.sendTo(device, { type: "JARVIS_AUDIO", id, seq, last, mime, data: data.toString("base64"), rate });
         if (seq === 0) this.reportVoice();
       } catch (err) {
         if (generation !== this.speechGeneration) return;

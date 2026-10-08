@@ -13,3 +13,6 @@ client/public/geo/
 # Your 3D model library (drop files here; not committed)
 /models/
 client/public/draco/
+# JARVIS's voice engine and voices (downloaded by `npm run setup` or on first start)
+/vendor/
+/voices/

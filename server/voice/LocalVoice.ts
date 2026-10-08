@@ -2,14 +2,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
-import type { VoiceProvider } from "./VoiceProvider";
+import type { Synthesis, VoiceProvider } from "./VoiceProvider";
 
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), "winspeech.ps1");
 const TIMEOUT_MS = 12_000;
 
 /**
- * JARVIS's offline voice: the Windows speech engine (a British male voice when installed),
- * synthesised on the ARC machine and streamed to whichever device speaks, like the Groq voice.
+ * JARVIS's backup voice: the Windows speech engine (a British male voice when installed),
+ * synthesised on the ARC machine and streamed to whichever device speaks, like Piper.
  * One long-lived PowerShell worker; text is sent as JSON on stdin, never as a command argument.
  */
 export class LocalVoice implements VoiceProvider {
@@ -41,7 +41,7 @@ export class LocalVoice implements VoiceProvider {
     if (this.available) void this.start().catch(() => undefined);
   }
 
-  async synthesize(text: string): Promise<{ mime: string; data: Buffer }> {
+  async synthesize(text: string): Promise<Synthesis> {
     if (this.disabledReason) throw new Error(this.disabledReason);
     await this.start();
     const id = `v${++this.seq}`;
@@ -103,44 +103,5 @@ export class LocalVoice implements VoiceProvider {
 
   stop(): void {
     this.worker?.kill();
-  }
-}
-
-/**
- * Groq voice first; the local Windows voice whenever Groq's isn't available (e.g. the
- * Orpheus terms haven't been accepted yet) or a chunk fails.
- */
-export class VoiceChain implements VoiceProvider {
-  constructor(
-    private readonly primary: VoiceProvider,
-    private readonly fallback: VoiceProvider,
-  ) {}
-
-  get name(): string {
-    return this.primary.available ? this.primary.name : this.fallback.name;
-  }
-
-  get available(): boolean {
-    return this.primary.available || this.fallback.available;
-  }
-
-  get unavailableReason(): string | undefined {
-    return this.available ? undefined : `${this.primary.unavailableReason}; ${this.fallback.unavailableReason}`;
-  }
-
-  /** "GROQ" when the cloud voice is speaking, "LOCAL" for the Windows voice. */
-  get engine(): "GROQ" | "LOCAL" {
-    return this.primary.available ? "GROQ" : "LOCAL";
-  }
-
-  async synthesize(text: string): Promise<{ mime: string; data: Buffer }> {
-    if (this.primary.available) {
-      try {
-        return await this.primary.synthesize(text);
-      } catch (err) {
-        if (!this.fallback.available) throw err;
-      }
-    }
-    return this.fallback.synthesize(text);
   }
 }
