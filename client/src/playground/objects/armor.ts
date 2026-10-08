@@ -20,6 +20,7 @@ import {
   rect,
   grow,
   flakeNormalMap,
+  smudgeMap,
   mechNormalMap,
   hexNormalMap,
   hudTexture,
@@ -75,9 +76,11 @@ function materials(style: SuitStyle): Record<Role, THREE.Material> {
     primary: new THREE.MeshPhysicalMaterial({
       color: s0.primary,
       metalness: 0.38,
-      roughness: 0.42,
+      roughness: 0.46,
+      roughnessMap: smudgeMap(),
       clearcoat: 1,
-      clearcoatRoughness: 0.07,
+      clearcoatRoughness: 0.08,
+      clearcoatRoughnessMap: smudgeMap(),
       normalMap: nano ?? flake,
       normalScale: new THREE.Vector2(nano ? 0.22 : 0.16, nano ? 0.22 : 0.16),
       side: THREE.DoubleSide,
@@ -85,7 +88,8 @@ function materials(style: SuitStyle): Record<Role, THREE.Material> {
     secondary: new THREE.MeshPhysicalMaterial({
       color: s0.secondary,
       metalness: 1,
-      roughness: 0.26,
+      roughness: 0.3,
+      roughnessMap: smudgeMap(),
       clearcoat: 0.5,
       clearcoatRoughness: 0.12,
       normalMap: nano ?? flake,
@@ -788,6 +792,7 @@ const wrap = (b: Built, radius: number): BuiltObject => {
   b.content.position.y = -0.95 * b.content.scale.y;
   const g = new THREE.Group();
   g.add(b.content);
+  g.userData.grounded = true; // Deep Dive: stands on a soft floor shadow
   return { content: g, radius, parts: b.parts, actions: b.actions, act: b.act, update: b.update, explode: b.explode };
 };
 

@@ -4,7 +4,7 @@ import type { DeepDivePart, DeepDiveSettings, DeepDiveState, LibraryModel, Model
 import type { PlaygroundEngine, View } from "./PlaygroundEngine";
 import { build } from "./objects/factory";
 import type { BuiltObject } from "./objects/types";
-import type { PartAnchor } from "./objects/parts";
+import { visibleBox, type PartAnchor } from "./objects/parts";
 import { buildImported } from "./ModelLoader";
 import { holoMaterial } from "./holo";
 import { Carousel, type CarouselItem } from "./Carousel";
@@ -57,6 +57,8 @@ export class DeepDive {
   private styled: Styled[] = [];
   private styleMats: THREE.Material[] = [];
   private platform: THREE.Group;
+  /** Soft floor shadow + contact occlusion under standing models (suits). */
+  private floor: THREE.Group;
   private savedView: View | null = null;
   private focusId: string | null = null;
   private partInfo = new Map<string, DeepDivePart>();
@@ -94,6 +96,9 @@ export class DeepDive {
     this.platform = buildPlatform();
     this.platform.position.y = -MODEL_RADIUS - 0.08;
     this.stage.add(this.platform);
+    this.floor = buildStudioFloor();
+    this.floor.visible = false;
+    this.stage.add(this.floor);
     this.carousel = new Carousel();
     this.carousel.makeModel = async (id) => {
       const imported = id.startsWith("m-") ? this.lookup(id) : undefined;
@@ -240,7 +245,7 @@ export class DeepDive {
 
     // Centre the model on the turntable (builders don't always put their geometry at the origin).
     built.content.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(built.content);
+    const box = visibleBox(built.content);
     if (!box.isEmpty()) built.content.position.sub(box.getCenter(new THREE.Vector3()));
     const spinner = new THREE.Group();
     spinner.add(built.content);
@@ -248,6 +253,14 @@ export class DeepDive {
     root.add(spinner);
     root.scale.setScalar(MODEL_RADIUS / built.radius);
     this.stage.add(root);
+    if (built.content.userData.grounded) {
+      // the floor sits under the feet; its occlusion blob matches the footprint
+      root.updateMatrixWorld(true);
+      const fb = visibleBox(root);
+      this.floor.position.y = fb.min.y - this.stage.position.y - 0.004;
+      const foot = Math.max(fb.max.x - fb.min.x, fb.max.z - fb.min.z);
+      this.floor.children[2].scale.set(foot * 0.95, foot * 0.62, 1);
+    }
     this.model = { id, name, built, root, spinner, parts: built.parts ?? [] };
     this.styleKey = "";
     this.explode = 0;
@@ -306,6 +319,7 @@ export class DeepDive {
     this.platform.visible = Boolean(this.model) && s.ar && !this.focusId && !this.model?.built.content.userData.noPlatform;
     this.engine.setStudio(s.bg, this.wantsSpace());
     this.platform.rotation.y += dt * 0.15;
+    this.floor.visible = Boolean(this.model?.built.content.userData.grounded) && !s.ar && s.style === "solid" && !this.focusId && Math.abs(this.model?.root.rotation.x ?? 0) < 0.05;
     const m = this.model;
     if (m) {
       if (!this.focusId && s.spin) m.spinner.rotation.y += dt * s.spin;
@@ -599,6 +613,52 @@ export class DeepDive {
     this.platform.visible = prevLabels;
     if (blob) this.onThumb(m.id, blob);
   }
+}
+
+/** Studio floor: catches the key light's shadow and adds a soft contact shadow under the feet. */
+function buildStudioFloor(): THREE.Group {
+  const g = new THREE.Group();
+  // a faint pool of light on the floor, so the shadows have something to fall on
+  const pc = document.createElement("canvas");
+  pc.width = pc.height = 256;
+  const px = pc.getContext("2d")!;
+  const pg = px.createRadialGradient(128, 128, 0, 128, 128, 128);
+  pg.addColorStop(0, "rgba(150,190,230,0.55)");
+  pg.addColorStop(0.5, "rgba(110,150,200,0.22)");
+  pg.addColorStop(1, "rgba(0,0,0,0)");
+  px.fillStyle = pg;
+  px.fillRect(0, 0, 256, 256);
+  const poolTex = new THREE.CanvasTexture(pc);
+  poolTex.colorSpace = THREE.SRGBColorSpace;
+  const pool = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 4.2), new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.32 }));
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.y = -0.001;
+  pool.renderOrder = 1;
+  pool.userData.noPick = true;
+  g.add(pool);
+  const catcher = new THREE.Mesh(new THREE.CircleGeometry(3.2, 64), new THREE.ShadowMaterial({ opacity: 0.42, transparent: true, depthWrite: false }));
+  catcher.rotation.x = -Math.PI / 2;
+  catcher.receiveShadow = true;
+  catcher.renderOrder = 2;
+  catcher.userData.noPick = true;
+  g.add(catcher);
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const ctx = c.getContext("2d")!;
+  const grd = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, "rgba(0,0,0,0.85)");
+  grd.addColorStop(0.45, "rgba(0,0,0,0.45)");
+  grd.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  const blob = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.75 }));
+  blob.rotation.x = -Math.PI / 2;
+  blob.position.y = 0.001;
+  blob.renderOrder = 3;
+  blob.userData.noPick = true;
+  g.add(blob);
+  return g;
 }
 
 /** Holographic turntable under the model in AR mode. */

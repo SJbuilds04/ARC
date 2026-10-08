@@ -1200,12 +1200,12 @@ body:has(.desktop.is-playground) .notices {
   flex-direction: column-reverse;
 }
 
-/* With a model on the Deep Dive stage both sides hold panels: notices sit bottom-centre */
+/* With a model on the Deep Dive stage both sides hold panels: notices use the empty space under the menu */
 body:has(.desktop.is-diving .dd-panel) .notices {
   right: auto;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 108px;
+  left: 14px;
+  bottom: 104px;
+  width: 224px;
 }
 
 .dd-empty {

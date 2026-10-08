@@ -572,6 +572,7 @@ const wrap = (b: Built, radius: number): BuiltObject => {
   b.content.position.y = -0.95;
   const g = new THREE.Group();
   g.add(b.content);
+  g.userData.grounded = true; // Deep Dive: stands on a soft floor shadow
   return { content: g, radius, parts: b.parts, actions: b.actions, act: b.act, update: b.update, explode: b.explode };
 };
 

@@ -954,6 +954,64 @@ export function flakeNormalMap(): THREE.Texture {
   return t;
 }
 
+/** Low-frequency smudges / wear for roughness maps (green channel), values ~0.7–1.15. */
+export function smudgeMap(): THREE.Texture {
+  const hit = texCache.get("smudge");
+  if (hit) return hit;
+  const s = 256;
+  const c = document.createElement("canvas");
+  c.width = c.height = s;
+  const g = c.getContext("2d")!;
+  const img = g.createImageData(s, s);
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  // tileable value noise on a few octaves
+  const lattice = (n: number) => {
+    const v = new Float32Array(n * n);
+    for (let i = 0; i < v.length; i++) v[i] = rnd();
+    return (x: number, y: number) => {
+      const xi = Math.floor(x);
+      const yi = Math.floor(y);
+      const fx = x - xi;
+      const fy = y - yi;
+      const ux = fx * fx * (3 - 2 * fx);
+      const uy = fy * fy * (3 - 2 * fy);
+      const at = (i: number, j: number) => v[(((j % n) + n) % n) * n + (((i % n) + n) % n)];
+      const a = at(xi, yi);
+      const b = at(xi + 1, yi);
+      const cc = at(xi, yi + 1);
+      const d = at(xi + 1, yi + 1);
+      return a + (b - a) * ux + (cc - a) * uy + (a - b - cc + d) * ux * uy;
+    };
+  };
+  const octs = [lattice(4), lattice(8), lattice(16), lattice(32)];
+  for (let y = 0; y < s; y++) {
+    for (let x = 0; x < s; x++) {
+      let v = 0;
+      let amp = 0.5;
+      let norm = 0;
+      octs.forEach((o, k) => {
+        const f = 4 << k;
+        v += o((x / s) * f, (y / s) * f) * amp;
+        norm += amp;
+        amp *= 0.55;
+      });
+      v /= norm;
+      const r = 0.7 + 0.45 * Math.pow(v, 1.4);
+      const i = (y * s + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(Math.min(1, r / 1.15) * 255);
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(1.6, 1.6);
+  t.colorSpace = THREE.NoColorSpace;
+  texCache.set("smudge", t);
+  return t;
+}
+
 /** Height field → tangent-space normal map. */
 function heightToNormal(height: Float32Array, s: number, strength: number): THREE.CanvasTexture {
   const c = document.createElement("canvas");

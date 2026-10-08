@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { BuiltObject } from "./objects/types";
 import { holoMaterial } from "./holo";
 import { kitDetail } from "./objects/suitkit";
+import { visibleBox } from "./objects/parts";
 
 export interface CarouselItem {
   id: string;
@@ -176,7 +177,7 @@ export class Carousel {
       if (!b || !this.slots.includes(s)) return;
       this.hologram(b, front);
       b.content.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(b.content);
+      const box = visibleBox(b.content);
       if (!box.isEmpty()) b.content.position.sub(box.getCenter(new THREE.Vector3()));
       s.holder.add(b.content);
       s.holder.scale.setScalar(PREVIEW_RADIUS / b.radius);

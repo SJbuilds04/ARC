@@ -30,6 +30,26 @@ export function at(parent: THREE.Object3D, x: number, y: number, z: number): THR
   return a;
 }
 
+/**
+ * Bounding box of what you can actually see: hidden objects (thruster flames, picking
+ * proxies with invisible materials) don't count, unlike Box3.setFromObject.
+ */
+export function visibleBox(root: THREE.Object3D): THREE.Box3 {
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  const tmp = new THREE.Box3();
+  root.traverseVisible((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.geometry) return;
+    const mat = m.material as THREE.Material | THREE.Material[];
+    if (!Array.isArray(mat) && mat && mat.visible === false) return;
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+    tmp.copy(m.geometry.boundingBox!).applyMatrix4(m.matrixWorld);
+    box.union(tmp);
+  });
+  return box.isEmpty() ? new THREE.Box3().setFromObject(root) : box;
+}
+
 /** Anchor at the centre of an object's geometry (call once the model is assembled). */
 export function centerOf(obj: THREE.Object3D, lift = 0): THREE.Object3D {
   const root = rootOf(obj);
