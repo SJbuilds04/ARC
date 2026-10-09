@@ -119,10 +119,20 @@ function VisionCard() {
  */
 function CameraTools() {
   const perf = useArc((x) => x.local.perf);
+  const camera = useArc((x) => x.local.camera);
+  const error = useArc((x) => x.local.cameraError);
   const cams = vision?.camera.cameras ?? [];
   const current = vision?.camera.deviceId ?? "";
   return (
     <div className="vision-card__tools">
+      {camera === "error" && (
+        <div className="vision-card__perf is-slow">
+          {error || "Camera failed to start"}
+          <button type="button" className="vision-card__retry" onClick={() => vision?.retry()}>
+            TRY AGAIN
+          </button>
+        </div>
+      )}
       {perf && (
         <div className={`vision-card__perf ${perf.camera && perf.camera < 20 ? "is-slow" : ""}`}>
           CAM {perf.camera} · HANDS {perf.hands} FPS · {perf.handsWhere}

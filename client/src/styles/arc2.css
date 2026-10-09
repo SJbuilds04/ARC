@@ -1608,6 +1608,21 @@ body:has(.desktop.is-diving .dd-panel) .notices {
 .vision-card__perf.is-slow {
   color: var(--warn);
 }
+.vision-card__retry {
+  display: block;
+  margin-top: 4px;
+  padding: 3px 8px;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line, currentColor);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.vision-card__retry:hover {
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
 .vision-card__perf em {
   display: block;
   font-style: normal;

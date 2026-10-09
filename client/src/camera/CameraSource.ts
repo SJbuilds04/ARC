@@ -114,19 +114,28 @@ export class CameraSource {
         { ...dev, width: { ideal: 424 }, height: { ideal: 240 }, frameRate: { ideal: 30, min: MIN_FPS } },
         // whatever it can do
         { ...dev, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
+        // the camera's own default
+        deviceId ? { deviceId: { exact: deviceId } } : {},
       ];
     };
-    let stream: MediaStream | null = null;
-    let lastErr: unknown = null;
-    for (const mode of modes(id)) {
-      try {
-        stream = await this.open(mode);
-        break;
-      } catch (err) {
-        lastErr = err;
-        if ((err as DOMException).name !== "OverconstrainedError") throw err;
+    // Some Windows drivers refuse a mode by failing to start ("NotReadableError"), not by saying it's
+    // unsupported: every mode gets a try, only a permission refusal stops early.
+    const tryModes = async (deviceId?: string): Promise<MediaStream | null> => {
+      for (const mode of modes(deviceId)) {
+        try {
+          return await this.open(mode);
+        } catch (err) {
+          lastErr = err;
+          if ((err as DOMException).name === "NotAllowedError") throw err;
+          await new Promise((r) => setTimeout(r, 150)); // let the driver release the device
+        }
       }
-    }
+      return null;
+    };
+    let lastErr: unknown = null;
+    let stream = await tryModes(id);
+    // the remembered/picked camera won't start at all: any camera at all
+    if (!stream && id) stream = await tryModes(undefined);
     if (!stream) throw lastErr;
     // Labels only exist after permission: the first time, check we didn't get the infrared camera.
     if (!id) {
@@ -136,16 +145,8 @@ export class CameraSource {
       if (NOT_A_WEBCAM.test(label) && better) {
         stream.getTracks().forEach((t) => t.stop());
         id = better;
-        stream = null;
-        for (const mode of modes(id)) {
-          try {
-            stream = await this.open(mode);
-            break;
-          } catch (err) {
-            if ((err as DOMException).name !== "OverconstrainedError") throw err;
-          }
-        }
-        if (!stream) stream = await this.open({ deviceId: { exact: id } });
+        stream = (await tryModes(id)) ?? (await tryModes(undefined));
+        if (!stream) throw lastErr;
       }
     }
     return stream;
