@@ -38,6 +38,8 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
   private stats = { camera: 0, hands: 0, face: 0, handsMs: 0, faceMs: 0, since: performance.now() };
   private capturing = false;
   private starting = false;
+  /** Start-up failed: wait for RECONNECT / TRY AGAIN instead of retrying on every state update. */
+  private failed = false;
   private relay = false;
   private consumesRemote: DeviceRole[] = [];
   private lastRelay = 0;
@@ -91,12 +93,14 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
     this.relay = routes.some((r) => r.source === this.role && r.consumer !== this.role);
     this.consumesRemote = routes.filter((r) => r.consumer === this.role && r.source !== this.role).map((r) => r.source);
 
-    if (shouldCapture && !this.capturing && !this.starting) void this.startCapture();
+    if (!shouldCapture) this.failed = false;
+    if (shouldCapture && !this.capturing && !this.starting && !this.failed) void this.startCapture();
     else if (!shouldCapture && (this.capturing || this.starting)) this.stopCapture();
   }
 
   /** Called from UI (e.g. RECONNECT on a vision error). */
   retry(): void {
+    this.failed = false;
     this.stopCapture();
     this.reconcile(useArc.getState().state);
   }
@@ -106,7 +110,7 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
     setLocal({ camera: "starting", cameraError: undefined });
     this.send("STARTING");
     try {
-      await Promise.all([this.camera.start(() => this.onCameraEnded()), this.tracker.load()]);
+      await Promise.all([this.camera.start(() => this.onCameraEnded()), this.loadTracker()]);
       setLocal({ trackerReady: true });
       if (!this.starting) {
         // Route changed while we were starting.
@@ -123,11 +127,27 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
       this.statusTimer = window.setInterval(() => this.reportStatus(false), 1000);
     } catch (err) {
       this.starting = false;
+      this.failed = true;
       this.camera.stop();
       const message = (err as Error).message || "Camera failed";
       setLocal({ camera: "error", cameraError: message });
       this.send("ERROR", message);
       notify({ level: "error", title: "VISION SOURCE UNAVAILABLE", text: `${this.role} CAMERA · ${message}`, code: "CAMERA" }, 0);
+    }
+  }
+
+  /** The hand model, with a clear reason when it can't load (usually: setup never copied its files). */
+  private async loadTracker(): Promise<void> {
+    try {
+      await this.tracker.load();
+    } catch (err) {
+      const missing = await Promise.all(
+        ["/mediapipe/vision_wasm_internal.js", "/models/hand_landmarker.task"].map((u) =>
+          fetch(u, { method: "HEAD" }).then((r) => !r.ok, () => false),
+        ),
+      );
+      if (missing.some(Boolean)) throw new Error("Hand tracking files are missing on this PC: run npm run setup, then npm run build, and restart ARC");
+      throw new Error(`Hand tracking couldn't start: ${(err as Error).message || "unknown error"}`);
     }
   }
 

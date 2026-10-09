@@ -1,5 +1,6 @@
 // Downloads / copies runtime assets into client/public so ARC serves everything
 // locally (no CDN dependency at runtime). Safe to re-run; existing files are kept.
+// --local: only copy what ships in node_modules (no downloads) — runs before every build.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,7 +77,8 @@ async function download({ url, out, transform }) {
   }
 }
 
-console.log("ARC asset setup");
+const LOCAL = process.argv.includes("--local");
+console.log(LOCAL ? "ARC local assets" : "ARC asset setup");
 const wasmSrc = path.join(root, "node_modules", "@mediapipe", "tasks-vision", "wasm");
 const wasmDst = path.join(pub, "mediapipe");
 fs.mkdirSync(wasmDst, { recursive: true });
@@ -89,6 +91,12 @@ const dracoDst = path.join(pub, "draco");
 fs.mkdirSync(dracoDst, { recursive: true });
 for (const f of fs.readdirSync(dracoSrc)) fs.copyFileSync(path.join(dracoSrc, f), path.join(dracoDst, f));
 console.log("  ✓ draco decoder");
+
+if (LOCAL) {
+  const missing = downloads.filter((d) => d.out.startsWith("models/hand") && !fs.existsSync(path.join(pub, d.out)));
+  if (missing.length) console.warn("  ✗ hand tracking model missing — run npm run setup (hand tracking won't work until then)");
+  process.exit(0);
+}
 
 const results = await Promise.all(downloads.map(download));
 const failed = results.filter((ok) => !ok).length;

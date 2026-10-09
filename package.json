@@ -6,6 +6,7 @@
     "setup": "node scripts/setup-assets.mjs && tsx server/voice/install.ts",
     "configure": "node scripts/configure.mjs",
     "doctor": "node scripts/doctor.mjs",
+    "prebuild": "node scripts/setup-assets.mjs --local",
     "build": "vite build",
     "start": "tsx server/index.ts",
     "dev": "node scripts/dev.mjs",

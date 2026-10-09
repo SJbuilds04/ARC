@@ -54,8 +54,10 @@ async function main() {
   if (fs.existsSync(piper) && voices.length) ok(`JARVIS's voice installed (Piper · ${voices.length} voice${voices.length === 1 ? "" : "s"})`);
   else warn("JARVIS's voice (Piper) isn't installed yet", "run npm run setup — or just start ARC: it downloads it on first start");
 
-  if (fs.existsSync(at("client", "dist", "index.html"))) ok("Interface built");
-  else bad("The interface isn't built", "run npm run build");
+  if (!fs.existsSync(at("client", "dist", "index.html"))) bad("The interface isn't built", "run npm run build");
+  else if (!fs.existsSync(at("client", "dist", "mediapipe")) || !fs.existsSync(at("client", "dist", "models", "hand_landmarker.task")))
+    bad("The interface was built without the hand-tracking files", "run npm run setup, then npm run build");
+  else ok("Interface built");
 
   // ── Groq ──
   const key = (process.env.GROQ_API_KEY || env.GROQ_API_KEY || "").trim();
