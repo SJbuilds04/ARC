@@ -1592,3 +1592,35 @@ body:has(.desktop.is-diving .dd-panel) .notices {
   word-break: break-all;
   color: var(--text-dim);
 }
+
+/* camera panel: fps readout + camera picker */
+.vision-card__tools {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+.vision-card__perf {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.vision-card__perf.is-slow {
+  color: var(--warn);
+}
+.vision-card__perf em {
+  display: block;
+  font-style: normal;
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+.vision-card__select {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  background: rgb(var(--rgb-s4) / 0.7);
+}

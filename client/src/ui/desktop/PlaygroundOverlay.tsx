@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { OBJECT_CATALOG, catalogEntry } from "@shared/catalog";
 import type { PlaygroundAction } from "@shared/types";
 import { useArc } from "../../core/store";
-import { arc, playground, uploadFile } from "../../core/services";
+import { arc, playground, uploadFile, vision } from "../../core/services";
 import { notify } from "../../core/store";
 import { DeepDiveOverlay } from "./DeepDiveOverlay";
 import { BrightnessControl } from "../deepdive";
@@ -108,7 +108,45 @@ function VisionCard() {
         <span>{local.gesture !== "NONE" ? local.gesture.replace("_", " ") : "NO HAND"}</span>
         <span>{src === "PC" && local.trackerFps ? `${local.trackerFps} FPS` : ""}</span>
       </div>
+      {src === "PC" && <CameraTools />}
     </Panel>
+  );
+}
+
+/**
+ * Which webcam, and where the time goes: CAM = frames the camera delivers, HANDS = frames tracked.
+ * A low CAM means the camera (dim light, wrong camera); a low HANDS with a high CAM means the tracker.
+ */
+function CameraTools() {
+  const perf = useArc((x) => x.local.perf);
+  const cams = vision?.camera.cameras ?? [];
+  const current = vision?.camera.deviceId ?? "";
+  return (
+    <div className="vision-card__tools">
+      {perf && (
+        <div className={`vision-card__perf ${perf.camera && perf.camera < 20 ? "is-slow" : ""}`}>
+          CAM {perf.camera} · HANDS {perf.hands} FPS · {perf.handsWhere}
+          {perf.camera > 0 && perf.camera < 20 && <em>Camera is slow: more light helps, or pick another camera</em>}
+        </div>
+      )}
+      {cams.length > 1 && (
+        <select
+          className="vision-card__select"
+          value={current}
+          onChange={(e) => {
+            vision?.camera.choose(e.target.value);
+            vision?.retry();
+          }}
+          aria-label="Camera"
+        >
+          {cams.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
   );
 }
 
