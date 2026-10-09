@@ -31,6 +31,8 @@ export function PairingCard() {
           <div className="pair-card__qr" dangerouslySetInnerHTML={{ __html: pairing.qrSvg.replace(/stroke="#bfefff(ff)?"/gi, 'stroke="currentColor"') }} />
           <div className="pair-card__hint">Scan with your phone camera. Same Wi‑Fi network.</div>
           <div className="pair-card__url">{pairing.url.split("?")[0]}</div>
+          <div className="pair-card__hint">Another computer (full console): open this link on it</div>
+          <div className="pair-card__url pair-card__url--copy">{`${pairing.url}&device=pc`}</div>
         </>
       ) : (
         <div className="pair-card__hint">Generating pairing code…</div>

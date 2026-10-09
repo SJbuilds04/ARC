@@ -167,9 +167,20 @@ export class DeviceHub implements Outbound {
     const known = hello.role === "PHONE" && hello.deviceToken ? this.pairing.authenticate(hello.deviceToken) : null;
 
     if (hello.role === "PC") {
-      // The desktop console must run on this machine.
-      if (!client.loopback) return this.reject(client, "PC_REMOTE", "The PC console can only be opened on the ARC machine.");
-      client.deviceId = "pc-local";
+      if (client.loopback) client.deviceId = "pc-local";
+      else {
+        // Another computer can run the full console, but only once it's paired (same QR / link as a phone).
+        const paired = hello.deviceToken ? this.pairing.authenticate(hello.deviceToken) : null;
+        if (paired) client.deviceId = paired.id;
+        else if (hello.pairToken) {
+          const fresh = this.pairing.pair(hello.pairToken, hello.deviceName);
+          if (!fresh) return this.reject(client, "PAIR_INVALID", "This pairing link has expired. Open DEVICES on the ARC PC and use the new link.");
+          client.deviceId = fresh.id;
+          deviceToken = fresh.deviceToken;
+          console.log(`[hub] paired new computer "${hello.deviceName}"`);
+          this.refreshPairingInfo();
+        } else return this.reject(client, "PC_REMOTE", "Pair this computer first: on the ARC PC open DEVICES and open the \"another computer\" link here.");
+      }
     } else if (known) {
       client.deviceId = known.id;
     } else if (hello.pairToken) {

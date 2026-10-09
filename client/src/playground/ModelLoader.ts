@@ -8,6 +8,7 @@ import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import type { LibraryModel } from "@shared/types";
 import type { BuiltObject } from "./objects/types";
 import { at, centerOf, partId, type PartAnchor } from "./objects/parts";
+import { loadDeviceToken } from "../core/device";
 
 let gltf: GLTFLoader | null = null;
 function gltfLoader(): GLTFLoader {
@@ -19,7 +20,9 @@ function gltfLoader(): GLTFLoader {
 
 /** Raw file → scene graph, by format. */
 async function loadRaw(model: LibraryModel): Promise<THREE.Object3D> {
-  const url = `/api/models/${encodeURIComponent(model.file)}`;
+  // a paired computer (not this machine) proves itself with its device token
+  const token = loadDeviceToken();
+  const url = `/api/models/${encodeURIComponent(model.file)}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
   switch (model.format) {
     case "glb":
     case "gltf":

@@ -8,7 +8,16 @@ import type { DeviceRole } from "@shared/types";
  */
 const params = new URLSearchParams(location.search);
 const local = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
-const override = params.get("device")?.toUpperCase();
+// ?device=pc|phone overrides, and is remembered (another computer opened once with ?device=pc stays a PC)
+const override = (() => {
+  const asked = params.get("device")?.toUpperCase();
+  try {
+    if (asked === "PC" || asked === "PHONE") localStorage.setItem("arc.device", asked);
+    return asked ?? localStorage.getItem("arc.device") ?? undefined;
+  } catch {
+    return asked;
+  }
+})();
 
 export const ROLE: DeviceRole = override === "PHONE" || override === "PC" ? override : local ? "PC" : "PHONE";
 

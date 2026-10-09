@@ -79,10 +79,11 @@ export function createApi(deps: ApiDeps) {
       return true;
     }
 
-    // Model files: only the PC's 3D engine loads them.
+    // Model files: only the PC's 3D engine loads them (this machine, or a paired computer).
     const model = pathname.match(/^\/api\/models\/([^/]+)$/);
     if (model && req.method === "GET") {
-      if (!isLoopback(req.socket.remoteAddress)) {
+      const token = new URL(req.url ?? "/", "https://arc.local").searchParams.get("token") ?? "";
+      if (!isLoopback(req.socket.remoteAddress) && !(token && deps.pairing.authenticate(token))) {
         res.writeHead(403).end();
         return true;
       }

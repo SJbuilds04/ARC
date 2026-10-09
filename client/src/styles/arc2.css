@@ -1587,3 +1587,8 @@ body:has(.desktop.is-diving .dd-panel) .notices {
 :root[data-theme="light"] .dd-label.is-behind {
   opacity: 0.62;
 }
+/* the "another computer" pairing link: long, selectable, wraps */
+.pair-card__url--copy {
+  word-break: break-all;
+  color: var(--text-dim);
+}
