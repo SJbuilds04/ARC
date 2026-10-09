@@ -103,12 +103,12 @@ function VisionCard() {
   const src = s.vision.activeSource;
   return (
     <Panel title={`${src} CAMERA`} className="vision-card" right={<span className={`pill ${s.vision.sources[src].status === "ACTIVE" ? "is-ok" : ""}`}>{s.vision.sources[src].status}</span>}>
-      <CameraPreview className="vision-card__feed" showVideo={src === "PC"} />
+      <CameraPreview className="vision-card__feed" />
       <div className="vision-card__meta">
         <span>{local.gesture !== "NONE" ? local.gesture.replace("_", " ") : "NO HAND"}</span>
-        <span>{src === "PC" && local.trackerFps ? `${local.trackerFps} FPS` : ""}</span>
+        <span>{src === "PC" ? (local.trackerFps ? `${local.trackerFps} FPS` : "") : s.vision.sources.PHONE.fps ? `${s.vision.sources.PHONE.fps} FPS` : ""}</span>
       </div>
-      {src === "PC" && <CameraTools />}
+      <CameraTools />
     </Panel>
   );
 }
@@ -121,11 +121,42 @@ function CameraTools() {
   const perf = useArc((x) => x.local.perf);
   const camera = useArc((x) => x.local.camera);
   const error = useArc((x) => x.local.cameraError);
+  const src = useArc((x) => x.state?.vision.activeSource ?? "PC");
+  const phoneConnected = useArc((x) => Boolean(x.state?.devices.PHONE.connected));
+  const phoneCam = useArc((x) => x.state?.vision.sources.PHONE);
+  const [video, setVideo] = useState(Boolean(vision?.remoteVideo));
+  useEffect(() => vision?.on("stream", () => setVideo(Boolean(vision?.remoteVideo))), []);
   const cams = vision?.camera.cameras ?? [];
   const current = vision?.camera.deviceId ?? "";
+  const onPhone = src === "PHONE";
+  // the phone is chosen but not connected: ARC keeps using the PC camera until it is
+  const phoneLive = onPhone && phoneConnected;
+  const choose = (value: string) => {
+    if (value === "phone") {
+      arc.send({ type: "ACTION_REQUEST", action: { action: "SWITCH_CAMERA", to: "PHONE" } });
+      return;
+    }
+    if (value !== "pc") vision?.camera.choose(value);
+    if (onPhone) arc.send({ type: "ACTION_REQUEST", action: { action: "SWITCH_CAMERA", to: "PC" } });
+    else vision?.retry();
+  };
   return (
     <div className="vision-card__tools">
-      {camera === "error" && (
+      {phoneLive && (
+        <div className={`vision-card__perf ${phoneCam?.status === "ERROR" ? "is-slow" : ""}`}>
+          {phoneCam?.status === "ERROR"
+            ? `PHONE CAMERA · ${phoneCam.error ?? "failed"}`
+            : `PHONE · HANDS ${phoneCam?.fps ?? 0} FPS · VIDEO ${video ? "LIVE" : phoneCam?.status === "ACTIVE" ? "CONNECTING…" : "STARTING…"}`}
+          {phoneCam?.status !== "ERROR" && <em>Keep ARC open on the phone, screen on, facing you</em>}
+        </div>
+      )}
+      {onPhone && !phoneConnected && (
+        <div className="vision-card__perf is-slow">
+          Phone not connected: using the PC camera
+          <em>Open ARC on the phone (DEVICES → scan the QR code)</em>
+        </div>
+      )}
+      {!phoneLive && camera === "error" && (
         <div className="vision-card__perf is-slow">
           {error || "Camera failed to start"}
           <button type="button" className="vision-card__retry" onClick={() => vision?.retry()}>
@@ -133,29 +164,26 @@ function CameraTools() {
           </button>
         </div>
       )}
-      {perf && (
+      {!phoneLive && perf && (
         <div className={`vision-card__perf ${perf.camera && perf.camera < 20 ? "is-slow" : ""}`}>
           CAM {perf.camera} · HANDS {perf.hands} FPS · {perf.handsWhere}
-          {perf.camera > 0 && perf.camera < 20 && <em>Camera is slow: more light helps, or pick another camera</em>}
+          {perf.camera > 0 && perf.camera < 20 && <em>Camera is slow: more light helps, or use the phone as the camera</em>}
         </div>
       )}
-      {cams.length > 1 && (
-        <select
-          className="vision-card__select"
-          value={current}
-          onChange={(e) => {
-            vision?.camera.choose(e.target.value);
-            vision?.retry();
-          }}
-          aria-label="Camera"
-        >
-          {cams.map((c) => (
+      <select className="vision-card__select" value={onPhone ? "phone" : current || cams[0]?.id || "pc"} onChange={(e) => choose(e.target.value)} aria-label="Camera">
+        {cams.length ? (
+          cams.map((c) => (
             <option key={c.id} value={c.id}>
               {c.label}
             </option>
-          ))}
-        </select>
-      )}
+          ))
+        ) : (
+          <option value="pc">PC camera</option>
+        )}
+        <option value="phone" disabled={!phoneConnected && !onPhone}>
+          {`📱 Phone — ${phoneConnected ? "connected" : "not connected"}`}
+        </option>
+      </select>
     </div>
   );
 }

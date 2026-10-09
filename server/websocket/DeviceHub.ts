@@ -261,6 +261,13 @@ export class DeviceHub implements Outbound {
         }
         return;
       }
+      case "RTC_SIGNAL": {
+        // the video handshake goes only to the other device; the video itself never touches the server
+        if (msg.to === role) return;
+        const target = this.byRole(msg.to);
+        if (target) this.send(target, { type: "RTC_SIGNAL", from: role, signal: msg.signal });
+        return;
+      }
       case "GESTURE":
         return;
       case "VISOR_STATUS": {

@@ -36,8 +36,9 @@ export function CameraPreview({ className = "", showVideo = true }: { className?
       if (canvas.height !== h) canvas.height = h;
       ctx.clearRect(0, 0, w, h);
       // Map image coords into the cover-fitted video box.
-      const vw = vision.camera.video.videoWidth || 640;
-      const vh = vision.camera.video.videoHeight || 480;
+      const shown = videoRef.current;
+      const vw = (shown?.srcObject && shown.videoWidth) || vision.camera.video.videoWidth || 640;
+      const vh = (shown?.srcObject && shown.videoHeight) || vision.camera.video.videoHeight || 480;
       const scale = Math.max(w / vw, h / vh);
       const ox = (w - vw * scale) / 2;
       const oy = (h - vh * scale) / 2;

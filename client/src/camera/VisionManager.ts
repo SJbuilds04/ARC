@@ -3,6 +3,7 @@ import type { ArcClient } from "../core/ArcClient";
 import { useArc, setLocal, notify, dismissCode } from "../core/store";
 import { Emitter } from "../core/emitter";
 import { CameraSource } from "./CameraSource";
+import { VideoLink } from "./VideoLink";
 import type { GestureManager } from "../gestures/GestureManager";
 import { VisionEngine, type ModelHandle, type PersonMask } from "./VisionEngine";
 import type { FaceFrame } from "../visor/FaceTracker";
@@ -26,10 +27,15 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
   readonly faceModel: ModelHandle = this.engine.face;
   /** Set by the VISOR while it needs face landmarks. */
   faceWanted = false;
-  /** The phone is touch-first: its camera skips hand tracking unless switched on in settings. */
+  /** The phone is touch-first: its camera skips hand tracking unless switched on, or it's the PC's camera. */
   private get handsWanted(): boolean {
-    return this.role !== "PHONE" || Boolean(useArc.getState().state?.vision.phoneHands);
+    return this.role !== "PHONE" || this.relay || Boolean(useArc.getState().state?.vision.phoneHands);
   }
+  /** Live video between devices: the phone's camera shown in the PC's camera panel. */
+  private readonly link: VideoLink;
+  private remoteStream: MediaStream | null = null;
+  private linkMode = "";
+  private relayTo: DeviceRole | null = null;
   private handsBusy = false;
   private faceBusy = false;
   private faceListeners = new Set<(face: FaceFrame | null, now: number) => void>();
@@ -63,12 +69,21 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
     private readonly gestures: GestureManager,
   ) {
     super();
+    this.link = new VideoLink(arc);
+    this.link.onRemote = (stream) => {
+      this.remoteStream = stream;
+      this.emitPreview();
+    };
     useArc.subscribe((s, prev) => {
       if (s.state !== prev.state || s.engaged !== prev.engaged) this.reconcile(s.state);
     });
     arc.on("HAND_FRAME", (msg) => this.onRemoteFrame(msg));
     // After a reconnect the server has forgotten our camera status — report it again.
-    arc.on("open", () => this.reportStatus(true));
+    arc.on("open", () => {
+      this.reportStatus(true);
+      // the handshake may have been lost with the connection: ask for the video again
+      if (this.linkMode.startsWith("recv:")) this.link.receive(this.linkMode.slice(5) as DeviceRole);
+    });
   }
 
   /** Warm the hand model early (boot sequence shows real progress). */
@@ -82,8 +97,28 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
       });
   }
 
+  /** What the camera panel shows: this device's camera, or the remote camera it's using (the phone's). */
   get stream(): MediaStream | null {
-    return this.camera.stream;
+    return this.consumesRemote.length ? this.remoteStream : this.camera.stream;
+  }
+
+  /** Whether the remote camera's video has arrived (the panel says CONNECTING until it does). */
+  get remoteVideo(): boolean {
+    return Boolean(this.remoteStream);
+  }
+
+  private emitPreview(): void {
+    this.emit("stream", this.stream);
+  }
+
+  /** Send this camera's video to the device using it, or receive the remote camera's video. */
+  private syncLink(): void {
+    const next = (this.capturing || this.starting) && this.relayTo && this.camera.active ? `send:${this.relayTo}` : this.consumesRemote.length ? `recv:${this.consumesRemote[0]}` : "";
+    if (next === this.linkMode) return;
+    if (this.linkMode) this.link.stop();
+    this.linkMode = next;
+    if (next.startsWith("send:")) this.link.send(this.camera.stream!, this.relayTo!);
+    else if (next.startsWith("recv:")) this.link.receive(this.consumesRemote[0]);
   }
 
   private reconcile(state: ArcState | null): void {
@@ -91,7 +126,11 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
     const routes = state.vision.routes;
     const shouldCapture = routes.some((r) => r.source === this.role);
     this.relay = routes.some((r) => r.source === this.role && r.consumer !== this.role);
+    this.relayTo = routes.find((r) => r.source === this.role && r.consumer !== this.role)?.consumer ?? null;
+    const wasRemote = this.consumesRemote.join();
     this.consumesRemote = routes.filter((r) => r.consumer === this.role && r.source !== this.role).map((r) => r.source);
+    if (this.consumesRemote.join() !== wasRemote) this.emitPreview();
+    this.syncLink();
 
     if (!shouldCapture) this.failed = false;
     if (shouldCapture && !this.capturing && !this.starting && !this.failed) void this.startCapture();
@@ -110,7 +149,9 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
     setLocal({ camera: "starting", cameraError: undefined });
     this.send("STARTING");
     try {
-      await Promise.all([this.camera.start(() => this.onCameraEnded()), this.loadTracker()]);
+      // the video can go to the PC as soon as the camera is open, while the hand model still loads
+      const camera = this.camera.start(() => this.onCameraEnded()).then(() => this.starting && this.syncLink());
+      await Promise.all([camera, this.loadTracker()]);
       setLocal({ trackerReady: true });
       if (!this.starting) {
         // Route changed while we were starting.
@@ -121,7 +162,8 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
       this.capturing = true;
       setLocal({ camera: "on" });
       dismissCode("CAMERA");
-      this.emit("stream", this.camera.stream);
+      this.emitPreview();
+      this.syncLink();
       this.send("ACTIVE");
       this.loop();
       this.statusTimer = window.setInterval(() => this.reportStatus(false), 1000);
@@ -129,6 +171,7 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
       this.starting = false;
       this.failed = true;
       this.camera.stop();
+      this.syncLink();
       const message = (err as Error).message || "Camera failed";
       setLocal({ camera: "error", cameraError: message });
       this.send("ERROR", message);
@@ -162,7 +205,8 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
     this.camera.stop();
     this.gestures.reset();
     setLocal({ camera: "off", trackerFps: 0, hands: 0 });
-    this.emit("stream", null);
+    this.emitPreview();
+    this.syncLink();
     this.send("IDLE");
   }
 
@@ -172,7 +216,8 @@ export class VisionManager extends Emitter<{ stream: MediaStream | null }> {
     this.camera.stop();
     setLocal({ camera: "error", cameraError: "Camera disconnected" });
     this.send("ERROR", "Camera disconnected");
-    this.emit("stream", null);
+    this.emitPreview();
+    this.syncLink();
   }
 
   private loop(): void {

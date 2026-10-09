@@ -217,6 +217,23 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     hands: z.number().optional(),
   }),
   z.object({ type: z.literal("HAND_FRAME"), source: DeviceRoleSchema, t: z.number(), hands: z.array(HandSchema).max(2) }),
+  // phone camera video → PC: the WebRTC handshake, passed between the two devices (the video itself goes direct)
+  z.object({
+    type: z.literal("RTC_SIGNAL"),
+    to: DeviceRoleSchema,
+    signal: z.object({
+      kind: z.enum(["request", "offer", "answer", "ice", "bye"]),
+      sdp: z.string().max(40_000).optional(),
+      candidate: z
+        .object({
+          candidate: z.string().max(1000).optional(),
+          sdpMid: z.string().max(64).nullable().optional(),
+          sdpMLineIndex: z.number().int().min(0).max(64).nullable().optional(),
+          usernameFragment: z.string().max(256).nullable().optional(),
+        })
+        .optional(),
+    }),
+  }),
   z.object({ type: z.literal("GESTURE"), gesture: z.string().max(40), x: z.number(), y: z.number() }),
   z.object({ type: z.literal("SCENE_STATE"), scene: SceneSnapshotSchema }),
   z.object({ type: z.literal("REQUEST_PAIRING") }),

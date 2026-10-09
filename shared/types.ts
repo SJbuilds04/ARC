@@ -254,6 +254,13 @@ export interface PairedDeviceInfo {
   connected: boolean;
 }
 
+/** One step of the phone → PC video handshake (WebRTC). */
+export interface RtcSignal {
+  kind: "request" | "offer" | "answer" | "ice" | "bye";
+  sdp?: string;
+  candidate?: { candidate?: string; sdpMid?: string | null; sdpMLineIndex?: number | null; usernameFragment?: string | null };
+}
+
 export type ServerMessage =
   | { type: "WELCOME"; deviceId: string; role: DeviceRole; deviceToken?: string; state: ArcState; serverTime: number }
   | { type: "STATE"; state: ArcState }
@@ -292,6 +299,7 @@ export type ServerMessage =
   | { type: "VISOR_COMMAND"; command: "RECALIBRATE" }
   | { type: "PLAYGROUND_COMMAND"; id: string; command: PlaygroundAction }
   | { type: "HAND_FRAME"; source: DeviceRole; t: number; hands: Hand[] }
+  | { type: "RTC_SIGNAL"; from: DeviceRole; signal: RtcSignal }
   | {
       type: "PAIRING_INFO";
       url: string;
